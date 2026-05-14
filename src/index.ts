@@ -192,6 +192,21 @@ const baseStyles = css`
     background: color-mix(in srgb, #22c55e 28%, var(--floormap-surface));
   }
 
+  .marker.is-light .marker-button,
+  .marker.is-light .marker-chip {
+    border-color: rgba(203, 213, 225, 0.9);
+    background: rgba(255, 255, 255, 0.96);
+    color: #334155;
+  }
+
+  .marker.is-light.is-active .marker-button,
+  .marker.is-light.is-active .marker-chip {
+    border-color: rgba(245, 184, 73, 0.98);
+    background: rgba(255, 233, 173, 0.98);
+    color: #6b4f00;
+    box-shadow: 0 0 0 2px rgba(255, 214, 102, 0.18), 0 8px 22px rgba(255, 196, 76, 0.42);
+  }
+
   .marker.is-muted .marker-button,
   .marker.is-muted .marker-chip {
     opacity: 0.7;
@@ -301,6 +316,25 @@ function entityIcon(stateObj: HassEntity | undefined, fallback: EntityIndexEntry
 
 function entityIsActive(stateObj: HassEntity | undefined): boolean {
   return Boolean(stateObj && stateObj.state === "on");
+}
+
+function entityUsesLampPalette(
+  entityId: string,
+  stateObj: HassEntity | undefined,
+  fallback: EntityIndexEntry | undefined
+): boolean {
+  const domain = entityId.split(".")[0];
+  if (domain === "light") {
+    return true;
+  }
+
+  const name = entityLabel(stateObj, fallback, entityId).toLowerCase();
+  if (name.includes("lamp")) {
+    return true;
+  }
+
+  const icon = entityIcon(stateObj, fallback).toLowerCase();
+  return icon.includes("lamp") || icon.includes("lightbulb");
 }
 
 function appendCacheBuster(path: string, layout: FloorMapLayout): string {
@@ -627,8 +661,10 @@ class FloorMapCard extends FloorMapBaseElement {
     const stateObj = this.hass?.states[placement.entity_id];
     const icon = entityIcon(stateObj, undefined);
     const label = entityLabel(stateObj, undefined, placement.entity_id);
+    const isLight = entityUsesLampPalette(placement.entity_id, stateObj, undefined);
     const markerClasses = [
       "marker",
+      isLight ? "is-light" : "",
       entityIsActive(stateObj) ? "is-active" : "",
       stateObj ? "" : "is-muted",
     ]
@@ -1068,8 +1104,10 @@ class FloorMapPanel extends FloorMapBaseElement {
     const stateObj = this.hass?.states[placement.entity_id];
     const indexEntry = this._entityIndex(placement.entity_id);
     const label = entityLabel(stateObj, indexEntry, placement.entity_id);
+    const isLight = entityUsesLampPalette(placement.entity_id, stateObj, indexEntry);
     const markerClasses = [
       "marker",
+      isLight ? "is-light" : "",
       entityIsActive(stateObj) ? "is-active" : "",
       stateObj ? "" : "is-muted",
     ]
