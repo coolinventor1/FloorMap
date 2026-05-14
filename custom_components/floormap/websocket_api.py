@@ -73,6 +73,7 @@ async def websocket_get_layout(
                 vol.Required("x"): vol.Coerce(float),
                 vol.Required("y"): vol.Coerce(float),
                 vol.Optional("show_state", default=False): bool,
+                vol.Optional("size", default=1.0): vol.Coerce(float),
             }
         ],
     }

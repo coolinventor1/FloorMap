@@ -11,6 +11,7 @@ export interface FloorMapPlacement {
   x: number;
   y: number;
   show_state: boolean;
+  size: number;
 }
 
 export interface FloorMapLayout {

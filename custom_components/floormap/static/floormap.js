@@ -741,10 +741,10 @@ var baseStyles = i`
   .marker-chip {
     display: inline-grid;
     place-items: center;
-    width: 2.8rem;
-    height: 2.8rem;
-    min-width: 2.8rem;
-    min-height: 2.8rem;
+    width: calc(2.8rem * var(--marker-scale, 1));
+    height: calc(2.8rem * var(--marker-scale, 1));
+    min-width: calc(2.8rem * var(--marker-scale, 1));
+    min-height: calc(2.8rem * var(--marker-scale, 1));
     aspect-ratio: 1 / 1;
     appearance: none;
     border: 2px solid var(--floormap-outline);
@@ -794,10 +794,10 @@ var baseStyles = i`
     display: flex;
     align-items: center;
     justify-content: center;
-    width: 1.25rem;
-    height: 1.25rem;
-    min-width: 1.25rem;
-    min-height: 1.25rem;
+    width: calc(1.25rem * var(--marker-scale, 1));
+    height: calc(1.25rem * var(--marker-scale, 1));
+    min-width: calc(1.25rem * var(--marker-scale, 1));
+    min-height: calc(1.25rem * var(--marker-scale, 1));
     border-radius: 0;
     background: transparent;
     margin: 0;
@@ -806,10 +806,10 @@ var baseStyles = i`
   }
 
   .marker-icon ha-icon {
-    --mdc-icon-size: 1.25rem;
+    --mdc-icon-size: calc(1.25rem * var(--marker-scale, 1));
     display: block;
-    width: 1.25rem;
-    height: 1.25rem;
+    width: calc(1.25rem * var(--marker-scale, 1));
+    height: calc(1.25rem * var(--marker-scale, 1));
     margin: 0;
     padding: 0;
     line-height: 0;
@@ -1071,7 +1071,7 @@ var FloorMapCardEditor = class extends i4 {
   render() {
     return b2`
       <div class="editor">
-        <div class="muted">FloorMap currently has no card options. Add it with <code>type: custom:floor-map</code>.</div>
+        <div class="muted">Add it with <code>type: custom:floor-map</code>. For a full-page floor plan, place it in a Home Assistant Panel view.</div>
       </div>
     `;
   }
@@ -1096,8 +1096,22 @@ var FloorMapCard = class extends FloorMapBaseElement {
       i`
       ha-card {
         display: grid;
+        grid-template-rows: auto 1fr;
         gap: 0.75rem;
         padding: 0.9rem;
+        min-height: clamp(560px, 78vh, 1080px);
+        height: 100%;
+      }
+
+      .map-shell,
+      .map-frame,
+      .map-surface {
+        height: 100%;
+      }
+
+      .map-surface {
+        min-height: clamp(480px, 72vh, 980px);
+        aspect-ratio: auto;
       }
     `
     ];
@@ -1115,7 +1129,7 @@ var FloorMapCard = class extends FloorMapBaseElement {
     };
   }
   getCardSize() {
-    return 7;
+    return 12;
   }
   render() {
     return b2`
@@ -1181,7 +1195,7 @@ var FloorMapCard = class extends FloorMapBaseElement {
     return b2`
       <div
         class=${markerClasses}
-        style=${`left:${placement.x * 100}%; top:${placement.y * 100}%;`}
+        style=${`left:${placement.x * 100}%; top:${placement.y * 100}%; --marker-scale:${placement.size ?? 1};`}
       >
         <button
           class="marker-button"
@@ -1384,6 +1398,30 @@ var FloorMapPanel = class extends FloorMapBaseElement {
         gap: 0.55rem;
       }
 
+      .size-row {
+        display: grid;
+        gap: 0.4rem;
+      }
+
+      .size-row label {
+        font-size: 0.82rem;
+        color: var(--floormap-muted);
+      }
+
+      .size-input {
+        display: grid;
+        grid-template-columns: 1fr auto;
+        gap: 0.75rem;
+        align-items: center;
+      }
+
+      .size-value {
+        min-width: 2.4rem;
+        text-align: right;
+        font-variant-numeric: tabular-nums;
+        color: var(--floormap-muted);
+      }
+
       .map-frame {
         min-height: 500px;
       }
@@ -1470,6 +1508,7 @@ var FloorMapPanel = class extends FloorMapBaseElement {
 
           <section class="section">
             <h3>Placed entities</h3>
+            <div class="muted">Drag markers on the map to reposition them. Use the size slider to control how large they appear in the viewer.</div>
             <div class="placed-list">
               ${this._draftPlacements.length ? this._draftPlacements.map((placement) => this._renderPlacedRow(placement)) : b2`<div class="muted">No entities placed yet.</div>`}
             </div>
@@ -1568,6 +1607,21 @@ var FloorMapPanel = class extends FloorMapBaseElement {
             <div class="placed-id">${placement.entity_id}</div>
           </div>
         </div>
+        <div class="size-row">
+          <label for=${`size-${placement.entity_id}`}>Marker size</label>
+          <div class="size-input">
+            <input
+              id=${`size-${placement.entity_id}`}
+              type="range"
+              min="0.6"
+              max="2.4"
+              step="0.1"
+              .value=${String(placement.size ?? 1)}
+              @input=${(event) => this._updatePlacementSize(placement.entity_id, event)}
+            />
+            <span class="size-value">${(placement.size ?? 1).toFixed(1)}x</span>
+          </div>
+        </div>
         <div class="row-actions">
           <button @click=${() => this._removePlacement(placement.entity_id)}>Remove</button>
         </div>
@@ -1588,7 +1642,7 @@ var FloorMapPanel = class extends FloorMapBaseElement {
     return b2`
       <div
         class=${markerClasses}
-        style=${`left:${placement.x * 100}%; top:${placement.y * 100}%;`}
+        style=${`left:${placement.x * 100}%; top:${placement.y * 100}%; --marker-scale:${placement.size ?? 1};`}
       >
         <div
           class="marker-chip"
@@ -1651,6 +1705,17 @@ var FloorMapPanel = class extends FloorMapBaseElement {
   _removePlacement(entityId) {
     this._draftPlacements = this._draftPlacements.filter(
       (placement) => placement.entity_id !== entityId
+    );
+    this._dirty = true;
+  }
+  _updatePlacementSize(entityId, event) {
+    const target = event.currentTarget;
+    const nextSize = Number.parseFloat(target.value);
+    this._draftPlacements = this._draftPlacements.map(
+      (placement) => placement.entity_id === entityId ? {
+        ...placement,
+        size: Number.isFinite(nextSize) ? Math.max(0.6, Math.min(2.4, nextSize)) : 1
+      } : placement
     );
     this._dirty = true;
   }
@@ -1794,7 +1859,8 @@ var FloorMapPanel = class extends FloorMapBaseElement {
         entity_id: this._pendingEntityId,
         x: point.x,
         y: point.y,
-        show_state: false
+        show_state: false,
+        size: 1
       }
     ];
     this._dirty = true;

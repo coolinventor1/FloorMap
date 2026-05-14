@@ -22,6 +22,8 @@ Version 1 includes:
 type: custom:floor-map
 ```
 
+For a full-page floor plan dashboard, create a dashboard view with the `Panel` view type and place only the FloorMap card in that view.
+
 ## Development
 
 Frontend source lives in [`src/index.ts`](/C:/Users/Owner/OneDrive/Documents/New%20project%203/src/index.ts) and is bundled into [`custom_components/floormap/static/floormap.js`](/C:/Users/Owner/OneDrive/Documents/New%20project%203/custom_components/floormap/static/floormap.js).

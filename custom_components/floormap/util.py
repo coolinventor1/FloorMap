@@ -23,6 +23,7 @@ class PlacementDict(TypedDict):
     x: float
     y: float
     show_state: bool
+    size: float
 
 
 class LayoutDict(TypedDict):
@@ -47,6 +48,11 @@ def clamp_coordinate(value: float) -> float:
     return max(0.0, min(1.0, float(value)))
 
 
+def clamp_marker_size(value: float) -> float:
+    """Clamp marker size to a reasonable visible range."""
+    return max(0.6, min(2.4, float(value)))
+
+
 def normalize_placements(raw_placements: list[dict]) -> list[PlacementDict]:
     """Normalize, validate, and deduplicate placement data."""
     normalized: list[PlacementDict] = []
@@ -65,6 +71,7 @@ def normalize_placements(raw_placements: list[dict]) -> list[PlacementDict]:
                 x=clamp_coordinate(float(raw["x"])),
                 y=clamp_coordinate(float(raw["y"])),
                 show_state=bool(raw.get("show_state", False)),
+                size=clamp_marker_size(float(raw.get("size", 1.0))),
             )
         )
 
@@ -125,4 +132,3 @@ def _jpeg_dimensions(data: bytes) -> tuple[int | None, int | None]:
             return (width, height)
         index += block_length
     return (None, None)
-
