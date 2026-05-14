@@ -1200,11 +1200,18 @@ class FloorMapPanel extends FloorMapBaseElement {
     this._uploading = true;
     this._error = null;
     try {
+      const accessToken = this.hass?.auth?.data?.accessToken;
+      if (!accessToken) {
+        throw new Error("Home Assistant access token is unavailable");
+      }
       const formData = new FormData();
       formData.append("file", file, file.name);
       const response = await fetch(FLOORPLAN_API_PATH, {
         method: "POST",
         body: formData,
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+        },
         credentials: "same-origin",
       });
       if (!response.ok) {

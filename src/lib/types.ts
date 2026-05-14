@@ -35,6 +35,11 @@ export interface HassEntity {
 }
 
 export interface HomeAssistant {
+  auth?: {
+    data?: {
+      accessToken?: string;
+    };
+  };
   states: Record<string, HassEntity>;
   user?: {
     is_admin?: boolean;
@@ -69,4 +74,3 @@ export interface ResolvedServiceAction {
   domain: string;
   service: string;
 }
-
