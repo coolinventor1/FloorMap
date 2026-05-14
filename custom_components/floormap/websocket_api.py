@@ -2,13 +2,23 @@
 
 from __future__ import annotations
 
+import base64
+import binascii
+
 import voluptuous as vol
 
 from homeassistant.components import websocket_api
 from homeassistant.components.websocket_api import ActiveConnection
 from homeassistant.core import HomeAssistant
 
-from .const import DATA_MANAGER, DOMAIN, WEBSOCKET_GET_LAYOUT, WEBSOCKET_SAVE_LAYOUT
+from .const import (
+    ALLOWED_IMAGE_TYPES,
+    DATA_MANAGER,
+    DOMAIN,
+    WEBSOCKET_GET_LAYOUT,
+    WEBSOCKET_SAVE_LAYOUT,
+    WEBSOCKET_UPLOAD_FLOORPLAN,
+)
 from .storage import FloorMapLayoutManager
 
 
@@ -70,8 +80,50 @@ async def websocket_save_layout(
     connection.send_result(msg["id"], layout)
 
 
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): WEBSOCKET_UPLOAD_FLOORPLAN,
+        vol.Required("file_name"): str,
+        vol.Required("media_type"): str,
+        vol.Required("content_base64"): str,
+    }
+)
+@websocket_api.async_response
+async def websocket_upload_floorplan(
+    hass: HomeAssistant, connection: ActiveConnection, msg: dict
+) -> None:
+    """Persist an uploaded floor plan image over the authenticated websocket."""
+    manager = get_manager(hass)
+    if manager is None:
+        connection.send_error(msg["id"], "not_found", "FloorMap is not configured")
+        return
+
+    media_type = msg["media_type"].lower()
+    if media_type not in ALLOWED_IMAGE_TYPES:
+        connection.send_error(
+            msg["id"],
+            "invalid_format",
+            "Only PNG and JPG floor plans are supported",
+        )
+        return
+
+    try:
+        content = base64.b64decode(msg["content_base64"], validate=True)
+    except binascii.Error:
+        connection.send_error(msg["id"], "invalid_format", "Invalid image payload")
+        return
+
+    if not content:
+        connection.send_error(msg["id"], "invalid_format", "Uploaded file is empty")
+        return
+
+    layout = await manager.async_save_floorplan(content=content, media_type=media_type)
+    layout["image_url"] = "/api/floormap/floorplan" if layout["image"] else None
+    connection.send_result(msg["id"], layout)
+
+
 def async_register_websocket_api(hass: HomeAssistant) -> None:
     """Register FloorMap WebSocket commands."""
     websocket_api.async_register_command(hass, websocket_get_layout)
     websocket_api.async_register_command(hass, websocket_save_layout)
-
+    websocket_api.async_register_command(hass, websocket_upload_floorplan)

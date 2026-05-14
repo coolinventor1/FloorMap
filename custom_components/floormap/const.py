@@ -4,7 +4,7 @@ from __future__ import annotations
 
 DOMAIN = "floormap"
 NAME = "FloorMap"
-VERSION = "0.1.3"
+VERSION = "0.1.4"
 
 EVENT_LAYOUT_UPDATED = "floormap_layout_updated"
 
@@ -27,6 +27,7 @@ FLOORPLAN_API_PATH = f"/api/{DOMAIN}/floorplan"
 
 WEBSOCKET_GET_LAYOUT = f"{DOMAIN}/get_layout"
 WEBSOCKET_SAVE_LAYOUT = f"{DOMAIN}/save_layout"
+WEBSOCKET_UPLOAD_FLOORPLAN = f"{DOMAIN}/upload_floorplan"
 
 ALLOWED_IMAGE_TYPES: dict[str, str] = {
     "image/png": ".png",

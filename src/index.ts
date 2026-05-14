@@ -23,6 +23,7 @@ const FLOORPLAN_API_PATH = `/api/${DOMAIN}/floorplan`;
 const EVENT_LAYOUT_UPDATED = "floormap_layout_updated";
 const GET_LAYOUT_COMMAND = `${DOMAIN}/get_layout`;
 const SAVE_LAYOUT_COMMAND = `${DOMAIN}/save_layout`;
+const UPLOAD_FLOORPLAN_COMMAND = `${DOMAIN}/upload_floorplan`;
 
 type CompactEntityRegistryEntry = Record<string, unknown>;
 
@@ -325,6 +326,23 @@ function appendCacheBuster(path: string, layout: FloorMapLayout): string {
   return `${path}${path.includes("?") ? "&" : "?"}ts=${encodeURIComponent(marker)}`;
 }
 
+async function fileToBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = reader.result;
+      if (typeof result !== "string") {
+        reject(new Error("Unable to read floor plan file"));
+        return;
+      }
+      const commaIndex = result.indexOf(",");
+      resolve(commaIndex >= 0 ? result.slice(commaIndex + 1) : result);
+    };
+    reader.onerror = () => reject(new Error("Unable to read floor plan file"));
+    reader.readAsDataURL(file);
+  });
+}
+
 abstract class FloorMapBaseElement extends LitElement {
   static properties = {
     hass: { attribute: false },
@@ -452,7 +470,7 @@ abstract class FloorMapBaseElement extends LitElement {
     );
   }
 
-  private async _signFloorplanUrl(layout: FloorMapLayout): Promise<string> {
+  protected async _signFloorplanUrl(layout: FloorMapLayout): Promise<string> {
     const signed = await this.hass!.callWS<{ path: string }>({
       type: "auth/sign_path",
       path: layout.image_url ?? FLOORPLAN_API_PATH,
@@ -1200,24 +1218,16 @@ class FloorMapPanel extends FloorMapBaseElement {
     this._uploading = true;
     this._error = null;
     try {
-      const accessToken = this.hass?.auth?.data?.accessToken;
-      if (!accessToken) {
-        throw new Error("Home Assistant access token is unavailable");
-      }
-      const formData = new FormData();
-      formData.append("file", file, file.name);
-      const response = await fetch(FLOORPLAN_API_PATH, {
-        method: "POST",
-        body: formData,
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-        },
-        credentials: "same-origin",
+      const contentBase64 = await fileToBase64(file);
+      const layout = await this.hass!.callWS<FloorMapLayout>({
+        type: UPLOAD_FLOORPLAN_COMMAND,
+        file_name: file.name,
+        media_type: file.type,
+        content_base64: contentBase64,
       });
-      if (!response.ok) {
-        throw new Error(await response.text());
-      }
-      await this._loadLayout();
+      this._layout = layout;
+      this._imageUrl = layout.image ? await this._signFloorplanUrl(layout) : null;
+      await this._afterLayoutLoad(layout);
     } catch (error) {
       this._error = error instanceof Error ? error.message : "Unable to upload floor plan";
     } finally {
