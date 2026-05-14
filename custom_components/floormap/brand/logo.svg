@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 96" role="img" aria-label="FloorMap logo">
+  <rect width="320" height="96" rx="20" fill="#0f172a"/>
+  <rect x="16" y="16" width="64" height="64" rx="16" fill="#1d4ed8"/>
+  <path d="M28 34l14-4 16 5 14-4v33l-14 4-16-5-14 4V34zm14 1v29m16-24v29" fill="none" stroke="#fff" stroke-linecap="round" stroke-linejoin="round" stroke-width="5"/>
+  <circle cx="58" cy="50" r="5" fill="#fbbf24"/>
+  <text x="102" y="59" fill="#ffffff" font-family="Segoe UI, Arial, sans-serif" font-size="34" font-weight="700">FloorMap</text>
+</svg>

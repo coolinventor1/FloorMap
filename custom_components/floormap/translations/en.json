@@ -1,0 +1,15 @@
+{
+  "title": "FloorMap",
+  "config": {
+    "step": {
+      "user": {
+        "title": "Set up FloorMap",
+        "description": "Create the FloorMap integration to manage one shared floor plan."
+      }
+    }
+  },
+  "abort": {
+    "single_instance_allowed": "Only one FloorMap instance is allowed."
+  }
+}
+

@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-label="FloorMap icon">
+  <rect width="128" height="128" rx="24" fill="#1d4ed8"/>
+  <path d="M20 34l28-8 32 10 28-8v66l-28 8-32-10-28 8V34zm28 2v56m32-46v56" fill="none" stroke="#ffffff" stroke-linecap="round" stroke-linejoin="round" stroke-width="10"/>
+  <circle cx="80" cy="64" r="10" fill="#fbbf24"/>
+</svg>
+

@@ -1,0 +1,12 @@
+{
+  "domain": "floormap",
+  "name": "FloorMap",
+  "version": "0.1.0",
+  "documentation": "https://github.com/coolinventor1/FloorMap",
+  "issue_tracker": "https://github.com/coolinventor1/FloorMap/issues",
+  "codeowners": [],
+  "dependencies": ["frontend"],
+  "single_config_entry": true,
+  "integration_type": "service",
+  "iot_class": "local_push"
+}
