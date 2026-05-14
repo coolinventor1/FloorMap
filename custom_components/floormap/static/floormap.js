@@ -743,9 +743,14 @@ var baseStyles = i`
     place-items: center;
     width: 2.8rem;
     height: 2.8rem;
+    min-width: 2.8rem;
+    min-height: 2.8rem;
+    aspect-ratio: 1 / 1;
+    appearance: none;
     border: 2px solid var(--floormap-outline);
-    border-radius: 999px;
+    border-radius: 50%;
     padding: 0;
+    overflow: hidden;
     background: color-mix(in srgb, var(--floormap-surface) 82%, black 18%);
     color: inherit;
     box-shadow: 0 8px 18px rgba(15, 23, 42, 0.24);
