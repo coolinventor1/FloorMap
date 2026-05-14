@@ -20,7 +20,6 @@ Version 1 includes:
 
 ```yaml
 type: custom:floor-map
-show_labels: false
 ```
 
 ## Development
@@ -33,4 +32,3 @@ npm run build
 npm test
 python -m unittest discover -s tests/python
 ```
-

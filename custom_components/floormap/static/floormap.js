@@ -735,18 +735,18 @@ var baseStyles = i`
   .marker {
     position: absolute;
     transform: translate(-50%, -100%);
-    min-width: 44px;
   }
 
   .marker-button,
   .marker-chip {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.45rem;
-    border: 1px solid var(--floormap-outline);
-    border-radius: 8px;
-    padding: 0.35rem 0.5rem;
-    background: color-mix(in srgb, var(--floormap-surface) 78%, black 22%);
+    display: inline-grid;
+    place-items: center;
+    width: 2.8rem;
+    height: 2.8rem;
+    border: 2px solid var(--floormap-outline);
+    border-radius: 999px;
+    padding: 0;
+    background: color-mix(in srgb, var(--floormap-surface) 82%, black 18%);
     color: inherit;
     box-shadow: 0 8px 18px rgba(15, 23, 42, 0.24);
     backdrop-filter: blur(10px);
@@ -758,8 +758,8 @@ var baseStyles = i`
 
   .marker.is-active .marker-button,
   .marker.is-active .marker-chip {
-    border-color: color-mix(in srgb, #22c55e 50%, var(--floormap-outline));
-    background: color-mix(in srgb, #22c55e 18%, var(--floormap-surface));
+    border-color: color-mix(in srgb, #22c55e 75%, var(--floormap-outline));
+    background: color-mix(in srgb, #22c55e 28%, var(--floormap-surface));
   }
 
   .marker.is-muted .marker-button,
@@ -768,36 +768,10 @@ var baseStyles = i`
   }
 
   .marker-icon {
-    display: inline-grid;
-    place-items: center;
-    width: 1.6rem;
-    height: 1.6rem;
-    border-radius: 999px;
-    background: color-mix(in srgb, var(--floormap-accent) 18%, transparent);
-    flex: 0 0 auto;
-  }
-
-  .marker-text {
     display: grid;
-    gap: 0.1rem;
-    min-width: 0;
-  }
-
-  .marker-name,
-  .marker-state {
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-
-  .marker-name {
-    font-size: 0.84rem;
-    font-weight: 600;
-  }
-
-  .marker-state {
-    font-size: 0.72rem;
-    color: var(--floormap-muted);
+    place-items: center;
+    width: 1.5rem;
+    height: 1.5rem;
   }
 
   .placement-hint {
@@ -840,13 +814,6 @@ function decodeEntityRegistryEntry(entry) {
 }
 function asString(value) {
   return typeof value === "string" && value.trim() ? value : void 0;
-}
-function stateDisplay(stateObj) {
-  if (!stateObj) {
-    return void 0;
-  }
-  const unit = asString(stateObj.attributes.unit_of_measurement);
-  return unit ? `${stateObj.state} ${unit}` : stateObj.state;
 }
 function entityLabel(stateObj, fallback, entityId) {
   return asString(stateObj?.attributes.friendly_name) ?? fallback?.name ?? entityId;
@@ -1050,21 +1017,9 @@ var FloorMapCardEditor = class extends i4 {
   render() {
     return b2`
       <div class="editor">
-        <label class="toggle-row">
-          <input
-            type="checkbox"
-            .checked=${Boolean(this._config.show_labels)}
-            @change=${this._onToggleLabels}
-          />
-          <span>Show entity labels</span>
-        </label>
+        <div class="muted">FloorMap currently has no card options. Add it with <code>type: custom:floor-map</code>.</div>
       </div>
     `;
-  }
-  _onToggleLabels(event) {
-    const target = event.currentTarget;
-    this._config = { ...this._config, show_labels: target.checked };
-    fireEvent(this, "config-changed", { config: this._config });
   }
 };
 var FloorMapCard = class extends FloorMapBaseElement {
@@ -1162,7 +1117,6 @@ var FloorMapCard = class extends FloorMapBaseElement {
     const stateObj = this.hass?.states[placement.entity_id];
     const icon = entityIcon(stateObj, void 0);
     const label = entityLabel(stateObj, void 0, placement.entity_id);
-    const showLabel = Boolean(this._config.show_labels);
     const markerClasses = [
       "marker",
       entityIsActive(stateObj) ? "is-active" : "",
@@ -1173,14 +1127,13 @@ var FloorMapCard = class extends FloorMapBaseElement {
         class=${markerClasses}
         style=${`left:${placement.x * 100}%; top:${placement.y * 100}%;`}
       >
-        <button class="marker-button" @click=${() => this._handleEntityTap(placement.entity_id)}>
+        <button
+          class="marker-button"
+          title=${label}
+          aria-label=${label}
+          @click=${() => this._handleEntityTap(placement.entity_id)}
+        >
           <span class="marker-icon"><ha-icon .icon=${icon}></ha-icon></span>
-          ${showLabel || placement.show_state ? b2`
-                <span class="marker-text">
-                  ${showLabel ? b2`<span class="marker-name">${label}</span>` : A}
-                  ${placement.show_state && stateObj ? b2`<span class="marker-state">${stateDisplay(stateObj)}</span>` : A}
-                </span>
-              ` : A}
         </button>
       </div>
     `;
@@ -1559,14 +1512,6 @@ var FloorMapPanel = class extends FloorMapBaseElement {
             <div class="placed-id">${placement.entity_id}</div>
           </div>
         </div>
-        <label class="toggle-row">
-          <input
-            type="checkbox"
-            .checked=${placement.show_state}
-            @change=${(event) => this._toggleShowState(placement.entity_id, event)}
-          />
-          <span>Show state on map</span>
-        </label>
         <div class="row-actions">
           <button @click=${() => this._removePlacement(placement.entity_id)}>Remove</button>
         </div>
@@ -1590,13 +1535,11 @@ var FloorMapPanel = class extends FloorMapBaseElement {
         <div
           class="marker-chip"
           data-entity-id=${placement.entity_id}
+          title=${label}
+          aria-label=${label}
           @pointerdown=${this._onMarkerPointerDown}
         >
           <span class="marker-icon"><ha-icon .icon=${entityIcon(stateObj, indexEntry)}></ha-icon></span>
-          <span class="marker-text">
-            <span class="marker-name">${label}</span>
-            ${placement.show_state && stateObj ? b2`<span class="marker-state">${stateDisplay(stateObj)}</span>` : A}
-          </span>
         </div>
       </div>
     `;
@@ -1650,13 +1593,6 @@ var FloorMapPanel = class extends FloorMapBaseElement {
   _removePlacement(entityId) {
     this._draftPlacements = this._draftPlacements.filter(
       (placement) => placement.entity_id !== entityId
-    );
-    this._dirty = true;
-  }
-  _toggleShowState(entityId, event) {
-    const target = event.currentTarget;
-    this._draftPlacements = this._draftPlacements.map(
-      (placement) => placement.entity_id === entityId ? { ...placement, show_state: target.checked } : placement
     );
     this._dirty = true;
   }
