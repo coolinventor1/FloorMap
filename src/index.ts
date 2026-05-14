@@ -1352,7 +1352,7 @@ class FloorMapPanel extends FloorMapBaseElement {
 
 defineOnce("floor-map-card-editor", FloorMapCardEditor);
 defineOnce("floor-map", FloorMapCard);
-defineOnce("floormap-panel", FloorMapPanel);
+defineOnce("ha-panel-floormap", FloorMapPanel);
 
 declare global {
   interface Window {

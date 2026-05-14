@@ -1772,7 +1772,7 @@ var FloorMapPanel = class extends FloorMapBaseElement {
 };
 defineOnce("floor-map-card-editor", FloorMapCardEditor);
 defineOnce("floor-map", FloorMapCard);
-defineOnce("floormap-panel", FloorMapPanel);
+defineOnce("ha-panel-floormap", FloorMapPanel);
 window.customCards = window.customCards || [];
 if (!window.customCards.find((card) => card.type === "floor-map")) {
   window.customCards.push({
