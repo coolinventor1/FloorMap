@@ -83,6 +83,13 @@ class FloorMapLayoutManager:
         exists = await self.hass.async_add_executor_job(floorplan_path.exists)
         return floorplan_path if exists else None
 
+    async def async_floorplan_bytes(self) -> bytes | None:
+        """Return current floor plan bytes if the file exists."""
+        floorplan_path = await self.async_floorplan_path()
+        if floorplan_path is None:
+            return None
+        return await self.hass.async_add_executor_job(floorplan_path.read_bytes)
+
     def _delete_previous_floorplans(self, keep_path: Path) -> None:
         """Remove prior saved floor plan files."""
         for suffix in ALLOWED_IMAGE_TYPES.values():
@@ -99,4 +106,3 @@ def create_manager(hass: HomeAssistant) -> FloorMapLayoutManager:
         store=store,
         floorplan_dir=Path(hass.config.path(FLOORPLAN_DIRECTORY, DOMAIN)),
     )
-

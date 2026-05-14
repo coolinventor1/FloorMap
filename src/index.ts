@@ -406,7 +406,7 @@ abstract class FloorMapBaseElement extends LitElement {
     try {
       const layout = await this.hass.callWS<FloorMapLayout>({ type: GET_LAYOUT_COMMAND });
       this._layout = layout;
-      this._imageUrl = layout.image ? await this._signFloorplanUrl(layout) : null;
+      this._imageUrl = await this._resolveImageUrl(layout);
       await this._afterLayoutLoad(layout);
     } catch (error) {
       this._layout = null;
@@ -415,6 +415,16 @@ abstract class FloorMapBaseElement extends LitElement {
     } finally {
       this._loading = false;
     }
+  }
+
+  protected async _resolveImageUrl(layout: FloorMapLayout): Promise<string | null> {
+    if (!layout.image) {
+      return null;
+    }
+    if (layout.image_data_url) {
+      return layout.image_data_url;
+    }
+    return this._signFloorplanUrl(layout);
   }
 
   protected _resetView(): void {
@@ -1226,7 +1236,7 @@ class FloorMapPanel extends FloorMapBaseElement {
         content_base64: contentBase64,
       });
       this._layout = layout;
-      this._imageUrl = layout.image ? await this._signFloorplanUrl(layout) : null;
+      this._imageUrl = await this._resolveImageUrl(layout);
       await this._afterLayoutLoad(layout);
     } catch (error) {
       this._error = error instanceof Error ? error.message : "Unable to upload floor plan";

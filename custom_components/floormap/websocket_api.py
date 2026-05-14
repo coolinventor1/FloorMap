@@ -27,6 +27,24 @@ def get_manager(hass: HomeAssistant) -> FloorMapLayoutManager | None:
     return hass.data.get(DOMAIN, {}).get(DATA_MANAGER)
 
 
+async def async_serialize_layout_for_frontend(
+    manager: FloorMapLayoutManager, layout: dict
+) -> dict:
+    """Attach frontend-friendly image data to a layout payload."""
+    serialized = dict(layout)
+    image = serialized.get("image")
+    serialized["image_url"] = "/api/floormap/floorplan" if image else None
+    serialized["image_data_url"] = None
+
+    if image:
+        content = await manager.async_floorplan_bytes()
+        if content:
+            encoded = base64.b64encode(content).decode("ascii")
+            serialized["image_data_url"] = f"data:{image['media_type']};base64,{encoded}"
+
+    return serialized
+
+
 @websocket_api.websocket_command(
     {
         vol.Required("type"): WEBSOCKET_GET_LAYOUT,
@@ -42,8 +60,7 @@ async def websocket_get_layout(
         connection.send_error(msg["id"], "not_found", "FloorMap is not configured")
         return
 
-    layout = manager.get_layout()
-    layout["image_url"] = "/api/floormap/floorplan" if layout["image"] else None
+    layout = await async_serialize_layout_for_frontend(manager, manager.get_layout())
     connection.send_result(msg["id"], layout)
 
 
@@ -76,7 +93,7 @@ async def websocket_save_layout(
         connection.send_error(msg["id"], "invalid_format", str(err))
         return
 
-    layout["image_url"] = "/api/floormap/floorplan" if layout["image"] else None
+    layout = await async_serialize_layout_for_frontend(manager, layout)
     connection.send_result(msg["id"], layout)
 
 
@@ -118,7 +135,7 @@ async def websocket_upload_floorplan(
         return
 
     layout = await manager.async_save_floorplan(content=content, media_type=media_type)
-    layout["image_url"] = "/api/floormap/floorplan" if layout["image"] else None
+    layout = await async_serialize_layout_for_frontend(manager, layout)
     connection.send_result(msg["id"], layout)
 
 

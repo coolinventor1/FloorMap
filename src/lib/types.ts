@@ -17,6 +17,7 @@ export interface FloorMapLayout {
   image: FloorMapImage | null;
   placements: FloorMapPlacement[];
   image_url?: string | null;
+  image_data_url?: string | null;
 }
 
 export interface FloorMapCardConfig {

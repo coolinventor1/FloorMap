@@ -935,7 +935,7 @@ var FloorMapBaseElement = class extends i4 {
     try {
       const layout = await this.hass.callWS({ type: GET_LAYOUT_COMMAND });
       this._layout = layout;
-      this._imageUrl = layout.image ? await this._signFloorplanUrl(layout) : null;
+      this._imageUrl = await this._resolveImageUrl(layout);
       await this._afterLayoutLoad(layout);
     } catch (error) {
       this._layout = null;
@@ -944,6 +944,15 @@ var FloorMapBaseElement = class extends i4 {
     } finally {
       this._loading = false;
     }
+  }
+  async _resolveImageUrl(layout) {
+    if (!layout.image) {
+      return null;
+    }
+    if (layout.image_data_url) {
+      return layout.image_data_url;
+    }
+    return this._signFloorplanUrl(layout);
   }
   _resetView() {
     this._scale = 1;
@@ -1659,7 +1668,7 @@ var FloorMapPanel = class extends FloorMapBaseElement {
         content_base64: contentBase64
       });
       this._layout = layout;
-      this._imageUrl = layout.image ? await this._signFloorplanUrl(layout) : null;
+      this._imageUrl = await this._resolveImageUrl(layout);
       await this._afterLayoutLoad(layout);
     } catch (error) {
       this._error = error instanceof Error ? error.message : "Unable to upload floor plan";
