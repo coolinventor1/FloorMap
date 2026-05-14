@@ -355,6 +355,11 @@ function fanPercentageValue(stateObj: HassEntity | undefined): number {
   return stateObj?.state === "on" ? 100 : 0;
 }
 
+function formatPercentageValue(value: number | null | undefined): string {
+  const normalized = Math.min(100, Math.max(0, Math.round(value ?? 0)));
+  return `${normalized}%`;
+}
+
 function appendCacheBuster(path: string, layout: FloorMapLayout): string {
   const marker = layout.image?.updated_at ?? Date.now().toString();
   return `${path}${path.includes("?") ? "&" : "?"}ts=${encodeURIComponent(marker)}`;
@@ -700,47 +705,111 @@ class FloorMapCard extends FloorMapBaseElement {
       }
 
       .fan-slider-shell {
-        display: grid;
-        gap: 0.45rem;
-        width: min(12rem, max(9rem, calc(9.5rem * var(--marker-scale, 1))));
-        padding: 0.7rem 0.8rem;
+        display: flex;
+        align-items: center;
+        gap: 0.7rem;
+        width: min(16rem, max(11rem, calc(12.25rem * var(--marker-scale, 1))));
+        min-height: 2.9rem;
+        padding: 0.55rem 0.8rem;
         border-radius: 999px;
         border: 1px solid color-mix(in srgb, var(--floormap-accent) 28%, var(--floormap-outline));
-        background: color-mix(in srgb, var(--floormap-surface) 92%, white 8%);
+        background: color-mix(in srgb, var(--floormap-surface) 90%, white 10%);
         box-shadow: 0 10px 28px rgba(15, 23, 42, 0.3);
         backdrop-filter: blur(14px);
         cursor: default;
       }
 
-      .fan-slider-top {
-        display: flex;
-        align-items: center;
-        gap: 0.45rem;
-      }
-
-      .fan-slider-top .marker-icon {
+      .fan-slider-shell .marker-icon {
         width: 1rem;
         height: 1rem;
         min-width: 1rem;
         min-height: 1rem;
+        color: color-mix(in srgb, var(--primary-text-color) 88%, var(--floormap-accent));
       }
 
-      .fan-slider-top .marker-icon ha-icon {
+      .fan-slider-shell .marker-icon ha-icon {
         --mdc-icon-size: 1rem;
         width: 1rem;
         height: 1rem;
       }
 
+      .fan-slider-track {
+        flex: 1 1 auto;
+        display: flex;
+        align-items: center;
+      }
+
       .fan-slider-value {
-        margin-left: auto;
-        font-size: 0.78rem;
-        color: var(--floormap-muted);
+        min-width: 2.8rem;
+        text-align: right;
+        font-size: 0.8rem;
+        color: color-mix(in srgb, var(--primary-text-color) 78%, var(--floormap-muted));
         font-variant-numeric: tabular-nums;
+        white-space: nowrap;
       }
 
       .fan-slider-input {
+        flex: 1 1 auto;
+        min-width: 6.5rem;
+        height: 1.25rem;
         width: 100%;
         margin: 0;
+        padding: 0;
+        appearance: none;
+        -webkit-appearance: none;
+        background: transparent;
+        cursor: ew-resize;
+      }
+
+      .fan-slider-input:focus {
+        outline: none;
+      }
+
+      .fan-slider-input::-webkit-slider-runnable-track {
+        height: 0.42rem;
+        border-radius: 999px;
+        background:
+          linear-gradient(
+            90deg,
+            var(--floormap-accent) 0%,
+            var(--floormap-accent) var(--fan-slider-progress, 0%),
+            color-mix(in srgb, var(--floormap-outline) 72%, transparent) var(--fan-slider-progress, 0%),
+            color-mix(in srgb, var(--floormap-outline) 72%, transparent) 100%
+          );
+      }
+
+      .fan-slider-input::-webkit-slider-thumb {
+        -webkit-appearance: none;
+        appearance: none;
+        width: 1rem;
+        height: 1rem;
+        margin-top: -0.29rem;
+        border: 2px solid color-mix(in srgb, var(--floormap-accent) 70%, white 30%);
+        border-radius: 50%;
+        background: white;
+        box-shadow: 0 2px 8px rgba(15, 23, 42, 0.24);
+      }
+
+      .fan-slider-input::-moz-range-track {
+        height: 0.42rem;
+        border: 0;
+        border-radius: 999px;
+        background: color-mix(in srgb, var(--floormap-outline) 72%, transparent);
+      }
+
+      .fan-slider-input::-moz-range-progress {
+        height: 0.42rem;
+        border-radius: 999px;
+        background: var(--floormap-accent);
+      }
+
+      .fan-slider-input::-moz-range-thumb {
+        width: 1rem;
+        height: 1rem;
+        border: 2px solid color-mix(in srgb, var(--floormap-accent) 70%, white 30%);
+        border-radius: 50%;
+        background: white;
+        box-shadow: 0 2px 8px rgba(15, 23, 42, 0.24);
       }
     `,
   ];
@@ -881,25 +950,26 @@ class FloorMapCard extends FloorMapBaseElement {
             class="fan-slider-shell"
             role="group"
             aria-label=${`${label} speed control`}
+            style=${`--fan-slider-progress:${Math.min(100, Math.max(0, Math.round(sliderValue)))}%;`}
             @mouseenter=${this._onFanSliderEnter}
             @mouseleave=${this._onFanSliderLeave}
             @pointerdown=${this._onFanSliderEnter}
             @pointerleave=${this._onFanSliderLeave}
           >
-            <div class="fan-slider-top">
-              <span class="marker-icon"><ha-icon .icon=${icon}></ha-icon></span>
-              <span class="fan-slider-value">${sliderValue}%</span>
+            <span class="marker-icon"><ha-icon .icon=${icon}></ha-icon></span>
+            <div class="fan-slider-track">
+              <input
+                class="fan-slider-input"
+                type="range"
+                min="0"
+                max="100"
+                step=${String(sliderStep)}
+                .value=${String(Math.min(100, Math.max(0, Math.round(sliderValue))))}
+                @input=${(event: Event) => this._onFanSliderInput(event)}
+                @change=${(event: Event) => this._onFanSliderCommit(placement.entity_id, event)}
+              />
             </div>
-            <input
-              class="fan-slider-input"
-              type="range"
-              min="0"
-              max="100"
-              step=${String(sliderStep)}
-              .value=${String(sliderValue)}
-              @input=${(event: Event) => this._onFanSliderInput(event)}
-              @change=${(event: Event) => this._onFanSliderCommit(placement.entity_id, event)}
-            />
+            <span class="fan-slider-value">${formatPercentageValue(sliderValue)}</span>
           </div>
         </div>
       `;
@@ -1148,7 +1218,7 @@ class FloorMapCard extends FloorMapBaseElement {
       return;
     }
     this._clearFanSliderHideTimeout();
-    this._fanSliderValue = Math.min(100, Math.max(0, Number(input.value)));
+    this._fanSliderValue = Math.min(100, Math.max(0, Math.round(Number(input.value))));
   }
 
   private async _onFanSliderCommit(entityId: string, event: Event): Promise<void> {
