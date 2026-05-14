@@ -939,6 +939,7 @@ class FloorMapPanel extends FloorMapBaseElement {
 
       .marker-chip {
         cursor: grab;
+        touch-action: none;
       }
 
       .marker-chip:active {
@@ -1200,7 +1201,6 @@ class FloorMapPanel extends FloorMapBaseElement {
           data-entity-id=${placement.entity_id}
           title=${label}
           aria-label=${label}
-          @pointerdown=${this._onMarkerPointerDown}
         >
           <span class="marker-icon"><ha-icon .icon=${entityIcon(stateObj, indexEntry)}></ha-icon></span>
         </div>
@@ -1363,7 +1363,8 @@ class FloorMapPanel extends FloorMapBaseElement {
         return;
       }
       this._panState = { mode: "marker", pointerId: event.pointerId, entityId };
-      marker.setPointerCapture(event.pointerId);
+      event.preventDefault();
+      surface.setPointerCapture(event.pointerId);
       return;
     }
 
@@ -1421,10 +1422,6 @@ class FloorMapPanel extends FloorMapBaseElement {
     surface?.releasePointerCapture(event.pointerId);
     this._isPanning = false;
     this._panState = undefined;
-  }
-
-  private _onMarkerPointerDown(event: PointerEvent): void {
-    event.stopPropagation();
   }
 
   private _onEditorMapClick(event: MouseEvent): void {

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 DOMAIN = "floormap"
 NAME = "FloorMap"
-VERSION = "0.2.0"
+VERSION = "0.2.1"
 
 EVENT_LAYOUT_UPDATED = "floormap_layout_updated"
 
