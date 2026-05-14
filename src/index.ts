@@ -2,12 +2,7 @@ import { LitElement, css, html, nothing } from "lit";
 import type { PropertyValues, TemplateResult } from "lit";
 
 import { resolveEntityAction } from "./lib/entity-actions";
-import {
-  MAX_SCALE,
-  MIN_SCALE,
-  pointerToNormalizedPoint,
-  zoomAroundPoint,
-} from "./lib/floormap-math";
+import { clampCoordinate, MAX_SCALE, MIN_SCALE, zoomAroundPoint } from "./lib/floormap-math";
 import type {
   EntityIndexEntry,
   FloorMapCardConfig,
@@ -143,12 +138,16 @@ const baseStyles = css`
     transform-origin: 0 0;
   }
 
+  .map-stage {
+    position: absolute;
+  }
+
   .map-image {
     position: absolute;
     inset: 0;
     width: 100%;
     height: 100%;
-    object-fit: contain;
+    object-fit: fill;
     pointer-events: none;
   }
 
@@ -391,6 +390,8 @@ abstract class FloorMapBaseElement extends LitElement {
     _scale: { state: true },
     _panX: { state: true },
     _panY: { state: true },
+    _surfaceWidth: { state: true },
+    _surfaceHeight: { state: true },
   };
 
   static styles = [baseStyles];
@@ -404,9 +405,13 @@ abstract class FloorMapBaseElement extends LitElement {
   protected _scale = 1;
   protected _panX = 0;
   protected _panY = 0;
+  protected _surfaceWidth = 0;
+  protected _surfaceHeight = 0;
 
   private _initialized = false;
   private _unsubscribe?: () => void;
+  private _resizeObserver?: ResizeObserver;
+  private _observedSurface?: HTMLElement;
 
   protected override updated(changedProperties: PropertyValues): void {
     super.updated(changedProperties);
@@ -414,11 +419,13 @@ abstract class FloorMapBaseElement extends LitElement {
       this._initialized = true;
       void this._initialize();
     }
+    this._ensureSurfaceObservation();
   }
 
   override disconnectedCallback(): void {
     super.disconnectedCallback();
     this._unsubscribe?.();
+    this._resizeObserver?.disconnect();
   }
 
   protected async _initialize(): Promise<void> {
@@ -529,6 +536,90 @@ abstract class FloorMapBaseElement extends LitElement {
 
   protected _mapSurface(): HTMLElement | null {
     return this.renderRoot.querySelector(".map-surface");
+  }
+
+  protected _mapStage(): HTMLElement | null {
+    return this.renderRoot.querySelector(".map-stage");
+  }
+
+  protected _imageStageStyle(): string {
+    if (!this._surfaceWidth || !this._surfaceHeight) {
+      return "left:0; top:0; width:100%; height:100%;";
+    }
+
+    const imageWidth = this._layout?.image?.width ?? 16;
+    const imageHeight = this._layout?.image?.height ?? 9;
+    const imageAspect = imageWidth / imageHeight;
+    const surfaceAspect = this._surfaceWidth / this._surfaceHeight;
+
+    let width = this._surfaceWidth;
+    let height = this._surfaceHeight;
+    let left = 0;
+    let top = 0;
+
+    if (surfaceAspect > imageAspect) {
+      height = this._surfaceHeight;
+      width = height * imageAspect;
+      left = (this._surfaceWidth - width) / 2;
+    } else {
+      width = this._surfaceWidth;
+      height = width / imageAspect;
+      top = (this._surfaceHeight - height) / 2;
+    }
+
+    return `left:${left}px; top:${top}px; width:${width}px; height:${height}px;`;
+  }
+
+  protected _normalizedPointFromClient(
+    clientX: number,
+    clientY: number
+  ): { x: number; y: number } | null {
+    const stage = this._mapStage();
+    if (!stage) {
+      return null;
+    }
+
+    const rect = stage.getBoundingClientRect();
+    if (!rect.width || !rect.height) {
+      return null;
+    }
+
+    if (
+      clientX < rect.left ||
+      clientX > rect.right ||
+      clientY < rect.top ||
+      clientY > rect.bottom
+    ) {
+      return null;
+    }
+
+    return {
+      x: clampCoordinate((clientX - rect.left) / rect.width),
+      y: clampCoordinate((clientY - rect.top) / rect.height),
+    };
+  }
+
+  private _ensureSurfaceObservation(): void {
+    const surface = this._mapSurface();
+    if (!surface || surface === this._observedSurface) {
+      return;
+    }
+
+    this._resizeObserver?.disconnect();
+    this._observedSurface = surface;
+    this._resizeObserver = new ResizeObserver((entries) => {
+      const rect = entries[0]?.contentRect;
+      if (!rect) {
+        return;
+      }
+      this._surfaceWidth = rect.width;
+      this._surfaceHeight = rect.height;
+    });
+    this._resizeObserver.observe(surface);
+
+    const rect = surface.getBoundingClientRect();
+    this._surfaceWidth = rect.width;
+    this._surfaceHeight = rect.height;
   }
 }
 
@@ -682,9 +773,11 @@ class FloorMapCard extends FloorMapBaseElement {
               class="map-transform"
               style=${`transform: translate(${this._panX}px, ${this._panY}px) scale(${this._scale});`}
             >
-              <img class="map-image" src=${this._imageUrl} alt="Floor plan" />
-              <div class="markers">
-                ${this._layout.placements.map((placement) => this._renderCardMarker(placement))}
+              <div class="map-stage" style=${this._imageStageStyle()}>
+                <img class="map-image" src=${this._imageUrl} alt="Floor plan" />
+                <div class="markers">
+                  ${this._layout.placements.map((placement) => this._renderCardMarker(placement))}
+                </div>
               </div>
             </div>
           </div>
@@ -1114,9 +1207,11 @@ class FloorMapPanel extends FloorMapBaseElement {
               class="map-transform"
               style=${`transform: translate(${this._panX}px, ${this._panY}px) scale(${this._scale});`}
             >
-              <img class="map-image" src=${this._imageUrl} alt="Floor plan" />
-              <div class="markers">
-                ${this._draftPlacements.map((placement) => this._renderEditorMarker(placement))}
+              <div class="map-stage" style=${this._imageStageStyle()}>
+                <img class="map-image" src=${this._imageUrl} alt="Floor plan" />
+                <div class="markers">
+                  ${this._draftPlacements.map((placement) => this._renderEditorMarker(placement))}
+                </div>
               </div>
             </div>
           </div>
@@ -1391,21 +1486,14 @@ class FloorMapPanel extends FloorMapBaseElement {
       return;
     }
 
-    const surface = this._mapSurface();
-    if (!surface) {
-      return;
-    }
-    const rect = surface.getBoundingClientRect();
     const activeState = this._panState;
     if (activeState.mode !== "marker") {
       return;
     }
-    const point = pointerToNormalizedPoint(
-      event.clientX,
-      event.clientY,
-      rect,
-      this._transformState()
-    );
+    const point = this._normalizedPointFromClient(event.clientX, event.clientY);
+    if (!point) {
+      return;
+    }
     this._draftPlacements = this._draftPlacements.map((placement) =>
       placement.entity_id === activeState.entityId
         ? { ...placement, x: point.x, y: point.y }
@@ -1433,17 +1521,10 @@ class FloorMapPanel extends FloorMapBaseElement {
       return;
     }
 
-    const surface = this._mapSurface();
-    if (!surface) {
+    const point = this._normalizedPointFromClient(event.clientX, event.clientY);
+    if (!point) {
       return;
     }
-    const rect = surface.getBoundingClientRect();
-    const point = pointerToNormalizedPoint(
-      event.clientX,
-      event.clientY,
-      rect,
-      this._transformState()
-    );
     this._draftPlacements = [
       ...this._draftPlacements,
       {
