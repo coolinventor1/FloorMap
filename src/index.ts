@@ -216,16 +216,29 @@ const baseStyles = css`
   }
 
   .marker-icon {
-    display: grid;
-    place-items: center;
+    display: flex;
+    align-items: center;
+    justify-content: center;
     width: 1.25rem;
     height: 1.25rem;
+    min-width: 1.25rem;
+    min-height: 1.25rem;
     border-radius: 0;
     background: transparent;
+    margin: 0;
+    padding: 0;
+    line-height: 0;
   }
 
   .marker-icon ha-icon {
     --mdc-icon-size: 1.25rem;
+    display: block;
+    width: 1.25rem;
+    height: 1.25rem;
+    margin: 0;
+    padding: 0;
+    line-height: 0;
+    transform: translate(0, 0);
   }
 
   .placement-hint {
