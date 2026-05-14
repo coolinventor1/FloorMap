@@ -751,10 +751,13 @@ var baseStyles = i`
     border-radius: 50%;
     padding: 0;
     overflow: hidden;
+    clip-path: circle(50% at 50% 50%);
     background: color-mix(in srgb, var(--floormap-surface) 82%, black 18%);
     color: inherit;
     box-shadow: 0 8px 18px rgba(15, 23, 42, 0.24);
     backdrop-filter: blur(10px);
+    line-height: 1;
+    flex: 0 0 auto;
   }
 
   .marker-button {
@@ -790,8 +793,14 @@ var baseStyles = i`
   .marker-icon {
     display: grid;
     place-items: center;
-    width: 1.5rem;
-    height: 1.5rem;
+    width: 1.25rem;
+    height: 1.25rem;
+    border-radius: 0;
+    background: transparent;
+  }
+
+  .marker-icon ha-icon {
+    --mdc-icon-size: 1.25rem;
   }
 
   .placement-hint {
