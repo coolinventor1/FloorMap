@@ -695,6 +695,8 @@ var SAVE_LAYOUT_COMMAND = `${DOMAIN}/save_layout`;
 var UPLOAD_FLOORPLAN_COMMAND = `${DOMAIN}/upload_floorplan`;
 var MARKER_LONG_PRESS_MS = 450;
 var MARKER_LONG_PRESS_MOVE_THRESHOLD = 10;
+var FAN_DOUBLE_CLICK_DELAY_MS = 240;
+var FAN_SLIDER_HIDE_DELAY_MS = 1e3;
 var baseStyles = i`
   :host {
     display: block;
@@ -954,8 +956,35 @@ function decodeEntityRegistryEntry(entry) {
 function asString2(value) {
   return typeof value === "string" && value.trim() ? value : void 0;
 }
+function asNumber(value) {
+  return typeof value === "number" && Number.isFinite(value) ? value : void 0;
+}
 function entityIsActive(stateObj) {
   return Boolean(stateObj && stateObj.state === "on");
+}
+function entityIsFan(entityId) {
+  return entityId.startsWith("fan.");
+}
+function fanSupportsPercentage(serviceIds) {
+  return serviceIds.includes("fan.set_percentage");
+}
+function fanPercentageStep(stateObj) {
+  const explicitStep = asNumber(stateObj?.attributes.percentage_step);
+  if (explicitStep && explicitStep > 0) {
+    return explicitStep;
+  }
+  const speedCount = asNumber(stateObj?.attributes.speed_count);
+  if (speedCount && speedCount > 1) {
+    return Math.max(1, Math.round(100 / speedCount));
+  }
+  return 1;
+}
+function fanPercentageValue(stateObj) {
+  const percentage = asNumber(stateObj?.attributes.percentage);
+  if (percentage !== void 0) {
+    return Math.min(100, Math.max(0, Math.round(percentage)));
+  }
+  return stateObj?.state === "on" ? 100 : 0;
 }
 function appendCacheBuster(path, layout) {
   const marker = layout.image?.updated_at ?? Date.now().toString();
@@ -1230,6 +1259,9 @@ var FloorMapCard = class extends FloorMapBaseElement {
     this._config = { type: "custom:floor-map", show_labels: false };
     this._actionCache = /* @__PURE__ */ new Map();
     this._isPanning = false;
+    this._fanSliderEntityId = null;
+    this._fanSliderValue = null;
+    this._pendingFanClicks = /* @__PURE__ */ new Map();
     this._onMarkerPointerMove = (event) => {
       if (!this._markerPressState || this._markerPressState.pointerId !== event.pointerId) {
         return;
@@ -1252,12 +1284,20 @@ var FloorMapCard = class extends FloorMapBaseElement {
       }
       this._clearMarkerPressState(event);
     };
+    this._onFanSliderEnter = () => {
+      this._clearFanSliderHideTimeout();
+    };
+    this._onFanSliderLeave = () => {
+      this._scheduleFanSliderHide();
+    };
   }
   static {
     this.properties = {
       ...FloorMapBaseElement.properties,
       _config: { state: true },
-      _isPanning: { state: true }
+      _isPanning: { state: true },
+      _fanSliderEntityId: { state: true },
+      _fanSliderValue: { state: true }
     };
   }
   static {
@@ -1282,6 +1322,55 @@ var FloorMapCard = class extends FloorMapBaseElement {
       .map-surface {
         min-height: clamp(480px, 72vh, 980px);
         aspect-ratio: auto;
+      }
+
+      .marker.is-fan-slider {
+        transform: translate(-50%, -50%);
+        z-index: 3;
+      }
+
+      .fan-slider-shell {
+        display: grid;
+        gap: 0.45rem;
+        width: min(12rem, max(9rem, calc(9.5rem * var(--marker-scale, 1))));
+        padding: 0.7rem 0.8rem;
+        border-radius: 999px;
+        border: 1px solid color-mix(in srgb, var(--floormap-accent) 28%, var(--floormap-outline));
+        background: color-mix(in srgb, var(--floormap-surface) 92%, white 8%);
+        box-shadow: 0 10px 28px rgba(15, 23, 42, 0.3);
+        backdrop-filter: blur(14px);
+        cursor: default;
+      }
+
+      .fan-slider-top {
+        display: flex;
+        align-items: center;
+        gap: 0.45rem;
+      }
+
+      .fan-slider-top .marker-icon {
+        width: 1rem;
+        height: 1rem;
+        min-width: 1rem;
+        min-height: 1rem;
+      }
+
+      .fan-slider-top .marker-icon ha-icon {
+        --mdc-icon-size: 1rem;
+        width: 1rem;
+        height: 1rem;
+      }
+
+      .fan-slider-value {
+        margin-left: auto;
+        font-size: 0.78rem;
+        color: var(--floormap-muted);
+        font-variant-numeric: tabular-nums;
+      }
+
+      .fan-slider-input {
+        width: 100%;
+        margin: 0;
       }
     `
     ];
@@ -1358,12 +1447,49 @@ var FloorMapCard = class extends FloorMapBaseElement {
     const icon = entityIcon(placement.entity_id, stateObj, void 0);
     const label = entityLabel(stateObj, void 0, placement.entity_id);
     const isLight = entityUsesLampPalette(placement.entity_id, stateObj, void 0);
+    const isFanSlider = this._fanSliderEntityId === placement.entity_id;
     const markerClasses = [
       "marker",
       isLight ? "is-light" : "",
+      isFanSlider ? "is-fan-slider" : "",
       entityIsActive(stateObj) ? "is-active" : "",
       stateObj ? "" : "is-muted"
     ].filter(Boolean).join(" ");
+    if (isFanSlider) {
+      const sliderValue = this._fanSliderValue ?? fanPercentageValue(stateObj);
+      const sliderStep = fanPercentageStep(stateObj);
+      return b2`
+        <div
+          class=${markerClasses}
+          style=${`left:${placement.x * 100}%; top:${placement.y * 100}%; --marker-scale:${placement.size ?? 1};`}
+        >
+          <div
+            class="fan-slider-shell"
+            role="group"
+            aria-label=${`${label} speed control`}
+            @mouseenter=${this._onFanSliderEnter}
+            @mouseleave=${this._onFanSliderLeave}
+            @pointerdown=${this._onFanSliderEnter}
+            @pointerleave=${this._onFanSliderLeave}
+          >
+            <div class="fan-slider-top">
+              <span class="marker-icon"><ha-icon .icon=${icon}></ha-icon></span>
+              <span class="fan-slider-value">${sliderValue}%</span>
+            </div>
+            <input
+              class="fan-slider-input"
+              type="range"
+              min="0"
+              max="100"
+              step=${String(sliderStep)}
+              .value=${String(sliderValue)}
+              @input=${(event) => this._onFanSliderInput(event)}
+              @change=${(event) => this._onFanSliderCommit(placement.entity_id, event)}
+            />
+          </div>
+        </div>
+      `;
+    }
     return b2`
       <div
         class=${markerClasses}
@@ -1379,6 +1505,7 @@ var FloorMapCard = class extends FloorMapBaseElement {
           @pointercancel=${this._onMarkerPointerEnd}
           @pointerleave=${this._onMarkerPointerLeave}
           @click=${(event) => this._onMarkerClick(placement.entity_id, event)}
+          @dblclick=${(event) => this._onMarkerDoubleClick(placement.entity_id, event)}
         >
           <span class="marker-icon"><ha-icon .icon=${icon}></ha-icon></span>
         </button>
@@ -1417,7 +1544,34 @@ var FloorMapCard = class extends FloorMapBaseElement {
       event.stopPropagation();
       return;
     }
+    if (this._fanSliderEntityId === entityId) {
+      event.preventDefault();
+      event.stopPropagation();
+      return;
+    }
+    if (entityIsFan(entityId)) {
+      const existingTimer = this._pendingFanClicks.get(entityId);
+      if (existingTimer) {
+        window.clearTimeout(existingTimer);
+      }
+      const timerId = window.setTimeout(() => {
+        this._pendingFanClicks.delete(entityId);
+        void this._handleEntityTap(entityId);
+      }, FAN_DOUBLE_CLICK_DELAY_MS);
+      this._pendingFanClicks.set(entityId, timerId);
+      return;
+    }
     void this._handleEntityTap(entityId);
+  }
+  _onMarkerDoubleClick(entityId, event) {
+    event.preventDefault();
+    event.stopPropagation();
+    const pendingClick = this._pendingFanClicks.get(entityId);
+    if (pendingClick) {
+      window.clearTimeout(pendingClick);
+      this._pendingFanClicks.delete(entityId);
+    }
+    void this._openFanSlider(entityId);
   }
   async _handleEntityTap(entityId) {
     if (!this.hass) {
@@ -1446,7 +1600,7 @@ var FloorMapCard = class extends FloorMapBaseElement {
   }
   _onPanStart(event) {
     const target = event.target;
-    if (target.closest(".marker-button")) {
+    if (target.closest(".marker-button") || target.closest(".fan-slider-shell")) {
       return;
     }
     const surface = this._mapSurface();
@@ -1497,6 +1651,54 @@ var FloorMapCard = class extends FloorMapBaseElement {
       return;
     }
     fireEvent(this, "hass-more-info", { entityId });
+  }
+  async _openFanSlider(entityId) {
+    if (!this.hass || !entityIsFan(entityId)) {
+      return;
+    }
+    const serviceIds = await this._serviceIdsForEntity(entityId);
+    if (!fanSupportsPercentage(serviceIds)) {
+      return;
+    }
+    this._clearFanSliderHideTimeout();
+    this._fanSliderEntityId = entityId;
+    this._fanSliderValue = fanPercentageValue(this.hass.states[entityId]);
+  }
+  _onFanSliderInput(event) {
+    const input = event.currentTarget;
+    if (!input) {
+      return;
+    }
+    this._clearFanSliderHideTimeout();
+    this._fanSliderValue = Math.min(100, Math.max(0, Number(input.value)));
+  }
+  async _onFanSliderCommit(entityId, event) {
+    const input = event.currentTarget;
+    if (!input || !this.hass) {
+      return;
+    }
+    this._clearFanSliderHideTimeout();
+    const percentage = Math.min(100, Math.max(0, Math.round(Number(input.value))));
+    this._fanSliderValue = percentage;
+    await this.hass.callService("fan", "set_percentage", {
+      entity_id: entityId,
+      percentage
+    });
+  }
+  _scheduleFanSliderHide() {
+    this._clearFanSliderHideTimeout();
+    this._fanSliderHideTimeout = window.setTimeout(() => {
+      this._fanSliderEntityId = null;
+      this._fanSliderValue = null;
+      this._fanSliderHideTimeout = void 0;
+    }, FAN_SLIDER_HIDE_DELAY_MS);
+  }
+  _clearFanSliderHideTimeout() {
+    if (this._fanSliderHideTimeout === void 0) {
+      return;
+    }
+    window.clearTimeout(this._fanSliderHideTimeout);
+    this._fanSliderHideTimeout = void 0;
   }
 };
 var FloorMapPanel = class extends FloorMapBaseElement {

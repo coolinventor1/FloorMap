@@ -22,6 +22,8 @@ const SAVE_LAYOUT_COMMAND = `${DOMAIN}/save_layout`;
 const UPLOAD_FLOORPLAN_COMMAND = `${DOMAIN}/upload_floorplan`;
 const MARKER_LONG_PRESS_MS = 450;
 const MARKER_LONG_PRESS_MOVE_THRESHOLD = 10;
+const FAN_DOUBLE_CLICK_DELAY_MS = 240;
+const FAN_SLIDER_HIDE_DELAY_MS = 1000;
 
 type CompactEntityRegistryEntry = Record<string, unknown>;
 
@@ -314,8 +316,43 @@ function asString(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() ? value : undefined;
 }
 
+function asNumber(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
 function entityIsActive(stateObj: HassEntity | undefined): boolean {
   return Boolean(stateObj && stateObj.state === "on");
+}
+
+function entityIsFan(entityId: string): boolean {
+  return entityId.startsWith("fan.");
+}
+
+function fanSupportsPercentage(serviceIds: string[]): boolean {
+  return serviceIds.includes("fan.set_percentage");
+}
+
+function fanPercentageStep(stateObj: HassEntity | undefined): number {
+  const explicitStep = asNumber(stateObj?.attributes.percentage_step);
+  if (explicitStep && explicitStep > 0) {
+    return explicitStep;
+  }
+
+  const speedCount = asNumber(stateObj?.attributes.speed_count);
+  if (speedCount && speedCount > 1) {
+    return Math.max(1, Math.round(100 / speedCount));
+  }
+
+  return 1;
+}
+
+function fanPercentageValue(stateObj: HassEntity | undefined): number {
+  const percentage = asNumber(stateObj?.attributes.percentage);
+  if (percentage !== undefined) {
+    return Math.min(100, Math.max(0, Math.round(percentage)));
+  }
+
+  return stateObj?.state === "on" ? 100 : 0;
 }
 
 function appendCacheBuster(path: string, layout: FloorMapLayout): string {
@@ -630,6 +667,8 @@ class FloorMapCard extends FloorMapBaseElement {
     ...FloorMapBaseElement.properties,
     _config: { state: true },
     _isPanning: { state: true },
+    _fanSliderEntityId: { state: true },
+    _fanSliderValue: { state: true },
   };
 
   static styles = [
@@ -653,6 +692,55 @@ class FloorMapCard extends FloorMapBaseElement {
       .map-surface {
         min-height: clamp(480px, 72vh, 980px);
         aspect-ratio: auto;
+      }
+
+      .marker.is-fan-slider {
+        transform: translate(-50%, -50%);
+        z-index: 3;
+      }
+
+      .fan-slider-shell {
+        display: grid;
+        gap: 0.45rem;
+        width: min(12rem, max(9rem, calc(9.5rem * var(--marker-scale, 1))));
+        padding: 0.7rem 0.8rem;
+        border-radius: 999px;
+        border: 1px solid color-mix(in srgb, var(--floormap-accent) 28%, var(--floormap-outline));
+        background: color-mix(in srgb, var(--floormap-surface) 92%, white 8%);
+        box-shadow: 0 10px 28px rgba(15, 23, 42, 0.3);
+        backdrop-filter: blur(14px);
+        cursor: default;
+      }
+
+      .fan-slider-top {
+        display: flex;
+        align-items: center;
+        gap: 0.45rem;
+      }
+
+      .fan-slider-top .marker-icon {
+        width: 1rem;
+        height: 1rem;
+        min-width: 1rem;
+        min-height: 1rem;
+      }
+
+      .fan-slider-top .marker-icon ha-icon {
+        --mdc-icon-size: 1rem;
+        width: 1rem;
+        height: 1rem;
+      }
+
+      .fan-slider-value {
+        margin-left: auto;
+        font-size: 0.78rem;
+        color: var(--floormap-muted);
+        font-variant-numeric: tabular-nums;
+      }
+
+      .fan-slider-input {
+        width: 100%;
+        margin: 0;
       }
     `,
   ];
@@ -684,6 +772,10 @@ class FloorMapCard extends FloorMapBaseElement {
         until: number;
       }
     | undefined;
+  private _fanSliderEntityId: string | null = null;
+  private _fanSliderValue: number | null = null;
+  private _fanSliderHideTimeout?: number;
+  private _pendingFanClicks = new Map<string, number>();
 
   public static getConfigElement(): HTMLElement {
     return document.createElement("floor-map-card-editor");
@@ -766,14 +858,52 @@ class FloorMapCard extends FloorMapBaseElement {
     const icon = entityIcon(placement.entity_id, stateObj, undefined);
     const label = entityLabel(stateObj, undefined, placement.entity_id);
     const isLight = entityUsesLampPalette(placement.entity_id, stateObj, undefined);
+    const isFanSlider = this._fanSliderEntityId === placement.entity_id;
     const markerClasses = [
       "marker",
       isLight ? "is-light" : "",
+      isFanSlider ? "is-fan-slider" : "",
       entityIsActive(stateObj) ? "is-active" : "",
       stateObj ? "" : "is-muted",
     ]
       .filter(Boolean)
       .join(" ");
+
+    if (isFanSlider) {
+      const sliderValue = this._fanSliderValue ?? fanPercentageValue(stateObj);
+      const sliderStep = fanPercentageStep(stateObj);
+      return html`
+        <div
+          class=${markerClasses}
+          style=${`left:${placement.x * 100}%; top:${placement.y * 100}%; --marker-scale:${placement.size ?? 1};`}
+        >
+          <div
+            class="fan-slider-shell"
+            role="group"
+            aria-label=${`${label} speed control`}
+            @mouseenter=${this._onFanSliderEnter}
+            @mouseleave=${this._onFanSliderLeave}
+            @pointerdown=${this._onFanSliderEnter}
+            @pointerleave=${this._onFanSliderLeave}
+          >
+            <div class="fan-slider-top">
+              <span class="marker-icon"><ha-icon .icon=${icon}></ha-icon></span>
+              <span class="fan-slider-value">${sliderValue}%</span>
+            </div>
+            <input
+              class="fan-slider-input"
+              type="range"
+              min="0"
+              max="100"
+              step=${String(sliderStep)}
+              .value=${String(sliderValue)}
+              @input=${(event: Event) => this._onFanSliderInput(event)}
+              @change=${(event: Event) => this._onFanSliderCommit(placement.entity_id, event)}
+            />
+          </div>
+        </div>
+      `;
+    }
 
     return html`
       <div
@@ -790,6 +920,7 @@ class FloorMapCard extends FloorMapBaseElement {
           @pointercancel=${this._onMarkerPointerEnd}
           @pointerleave=${this._onMarkerPointerLeave}
           @click=${(event: MouseEvent) => this._onMarkerClick(placement.entity_id, event)}
+          @dblclick=${(event: MouseEvent) => this._onMarkerDoubleClick(placement.entity_id, event)}
         >
           <span class="marker-icon"><ha-icon .icon=${icon}></ha-icon></span>
         </button>
@@ -869,7 +1000,39 @@ class FloorMapCard extends FloorMapBaseElement {
       return;
     }
 
+    if (this._fanSliderEntityId === entityId) {
+      event.preventDefault();
+      event.stopPropagation();
+      return;
+    }
+
+    if (entityIsFan(entityId)) {
+      const existingTimer = this._pendingFanClicks.get(entityId);
+      if (existingTimer) {
+        window.clearTimeout(existingTimer);
+      }
+      const timerId = window.setTimeout(() => {
+        this._pendingFanClicks.delete(entityId);
+        void this._handleEntityTap(entityId);
+      }, FAN_DOUBLE_CLICK_DELAY_MS);
+      this._pendingFanClicks.set(entityId, timerId);
+      return;
+    }
+
     void this._handleEntityTap(entityId);
+  }
+
+  private _onMarkerDoubleClick(entityId: string, event: MouseEvent): void {
+    event.preventDefault();
+    event.stopPropagation();
+
+    const pendingClick = this._pendingFanClicks.get(entityId);
+    if (pendingClick) {
+      window.clearTimeout(pendingClick);
+      this._pendingFanClicks.delete(entityId);
+    }
+
+    void this._openFanSlider(entityId);
   }
 
   private async _handleEntityTap(entityId: string): Promise<void> {
@@ -903,7 +1066,7 @@ class FloorMapCard extends FloorMapBaseElement {
 
   private _onPanStart(event: PointerEvent): void {
     const target = event.target as HTMLElement;
-    if (target.closest(".marker-button")) {
+    if (target.closest(".marker-button") || target.closest(".fan-slider-shell")) {
       return;
     }
     const surface = this._mapSurface();
@@ -962,6 +1125,71 @@ class FloorMapCard extends FloorMapBaseElement {
       return;
     }
     fireEvent(this, "hass-more-info", { entityId });
+  }
+
+  private async _openFanSlider(entityId: string): Promise<void> {
+    if (!this.hass || !entityIsFan(entityId)) {
+      return;
+    }
+
+    const serviceIds = await this._serviceIdsForEntity(entityId);
+    if (!fanSupportsPercentage(serviceIds)) {
+      return;
+    }
+
+    this._clearFanSliderHideTimeout();
+    this._fanSliderEntityId = entityId;
+    this._fanSliderValue = fanPercentageValue(this.hass.states[entityId]);
+  }
+
+  private _onFanSliderInput(event: Event): void {
+    const input = event.currentTarget as HTMLInputElement | null;
+    if (!input) {
+      return;
+    }
+    this._clearFanSliderHideTimeout();
+    this._fanSliderValue = Math.min(100, Math.max(0, Number(input.value)));
+  }
+
+  private async _onFanSliderCommit(entityId: string, event: Event): Promise<void> {
+    const input = event.currentTarget as HTMLInputElement | null;
+    if (!input || !this.hass) {
+      return;
+    }
+
+    this._clearFanSliderHideTimeout();
+    const percentage = Math.min(100, Math.max(0, Math.round(Number(input.value))));
+    this._fanSliderValue = percentage;
+    await this.hass.callService("fan", "set_percentage", {
+      entity_id: entityId,
+      percentage,
+    });
+  }
+
+  private _onFanSliderEnter = (): void => {
+    this._clearFanSliderHideTimeout();
+  };
+
+  private _onFanSliderLeave = (): void => {
+    this._scheduleFanSliderHide();
+  };
+
+  private _scheduleFanSliderHide(): void {
+    this._clearFanSliderHideTimeout();
+    this._fanSliderHideTimeout = window.setTimeout(() => {
+      this._fanSliderEntityId = null;
+      this._fanSliderValue = null;
+      this._fanSliderHideTimeout = undefined;
+    }, FAN_SLIDER_HIDE_DELAY_MS);
+  }
+
+  private _clearFanSliderHideTimeout(): void {
+    if (this._fanSliderHideTimeout === undefined) {
+      return;
+    }
+
+    window.clearTimeout(this._fanSliderHideTimeout);
+    this._fanSliderHideTimeout = undefined;
   }
 }
 

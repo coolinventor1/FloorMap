@@ -1,7 +1,7 @@
 {
   "domain": "floormap",
   "name": "FloorMap",
-  "version": "0.2.4",
+  "version": "0.2.5",
   "documentation": "https://github.com/coolinventor1/FloorMap",
   "issue_tracker": "https://github.com/coolinventor1/FloorMap/issues",
   "codeowners": [],

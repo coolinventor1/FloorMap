@@ -33,6 +33,9 @@ export interface HassEntity {
     device_class?: string;
     friendly_name?: string;
     icon?: string;
+    percentage?: number;
+    percentage_step?: number;
+    speed_count?: number;
     unit_of_measurement?: string;
   };
 }
