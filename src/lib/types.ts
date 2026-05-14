@@ -30,6 +30,7 @@ export interface HassEntity {
   entity_id: string;
   state: string;
   attributes: Record<string, unknown> & {
+    device_class?: string;
     friendly_name?: string;
     icon?: string;
     unit_of_measurement?: string;

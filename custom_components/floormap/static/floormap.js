@@ -568,6 +568,105 @@ function resolveEntityAction(serviceIds, entityId, currentState) {
   return null;
 }
 
+// src/lib/entity-display.ts
+var DOOR_DEVICE_CLASSES = /* @__PURE__ */ new Set(["door", "opening"]);
+var GARAGE_DEVICE_CLASSES = /* @__PURE__ */ new Set(["garage", "garage_door"]);
+var OPEN_STATES = /* @__PURE__ */ new Set(["on", "open", "opening"]);
+var CLOSED_STATES = /* @__PURE__ */ new Set(["off", "closed", "closing"]);
+function asString(value) {
+  return typeof value === "string" && value.trim() ? value : void 0;
+}
+function normalizedState(stateObj) {
+  return asString(stateObj?.state)?.toLowerCase();
+}
+function entityDomain(entityId) {
+  const [domain] = entityId.split(".");
+  return domain ?? "";
+}
+function entityDeviceClass(stateObj) {
+  return asString(stateObj?.attributes.device_class)?.toLowerCase();
+}
+function tokenPattern(token) {
+  return new RegExp(`(^|[\\s._-])${token}([\\s._-]|$)`, "i");
+}
+function matchesToken(value, token) {
+  return value ? tokenPattern(token).test(value) : false;
+}
+function entityBaseIcon(stateObj, fallback) {
+  return asString(stateObj?.attributes.icon) ?? fallback?.icon ?? "mdi:map-marker";
+}
+function entityDoorKind(entityId, stateObj, fallback) {
+  const deviceClass = entityDeviceClass(stateObj);
+  if (deviceClass && GARAGE_DEVICE_CLASSES.has(deviceClass)) {
+    return "garage";
+  }
+  if (deviceClass && DOOR_DEVICE_CLASSES.has(deviceClass)) {
+    return "door";
+  }
+  const icon = entityBaseIcon(stateObj, fallback).toLowerCase();
+  if (matchesToken(icon, "garage")) {
+    return "garage";
+  }
+  if (matchesToken(icon, "door")) {
+    return "door";
+  }
+  const label = entityLabel(stateObj, fallback, entityId).toLowerCase();
+  if (matchesToken(label, "garage")) {
+    return "garage";
+  }
+  if (matchesToken(label, "door")) {
+    return "door";
+  }
+  const domain = entityDomain(entityId);
+  if (domain === "binary_sensor" || domain === "cover") {
+    if (matchesToken(entityId.toLowerCase(), "garage")) {
+      return "garage";
+    }
+    if (matchesToken(entityId.toLowerCase(), "door")) {
+      return "door";
+    }
+  }
+  return null;
+}
+function doorStateIcon(kind, stateObj) {
+  const state = normalizedState(stateObj);
+  if (!state) {
+    return null;
+  }
+  if (OPEN_STATES.has(state)) {
+    return kind === "garage" ? "mdi:garage-open" : "mdi:door-open";
+  }
+  if (CLOSED_STATES.has(state)) {
+    return kind === "garage" ? "mdi:garage" : "mdi:door-closed";
+  }
+  return null;
+}
+function entityLabel(stateObj, fallback, entityId) {
+  return asString(stateObj?.attributes.friendly_name) ?? fallback?.name ?? entityId;
+}
+function entityIcon(entityId, stateObj, fallback) {
+  const doorKind = entityDoorKind(entityId, stateObj, fallback);
+  if (doorKind) {
+    const statefulIcon = doorStateIcon(doorKind, stateObj);
+    if (statefulIcon) {
+      return statefulIcon;
+    }
+  }
+  return entityBaseIcon(stateObj, fallback);
+}
+function entityUsesLampPalette(entityId, stateObj, fallback) {
+  const domain = entityDomain(entityId);
+  if (domain === "light") {
+    return true;
+  }
+  const name = entityLabel(stateObj, fallback, entityId).toLowerCase();
+  if (name.includes("lamp")) {
+    return true;
+  }
+  const icon = entityBaseIcon(stateObj, fallback).toLowerCase();
+  return icon.includes("lamp") || icon.includes("lightbulb");
+}
+
 // src/lib/floormap-math.ts
 var MIN_SCALE = 1;
 var MAX_SCALE = 4;
@@ -842,37 +941,19 @@ function defineOnce(tagName, ctor) {
   }
 }
 function decodeEntityRegistryEntry(entry) {
-  const entityId = asString(entry.ei) ?? asString(entry.entity_id) ?? asString(entry.eid) ?? asString(entry.entityId) ?? asString(entry.id);
+  const entityId = asString2(entry.ei) ?? asString2(entry.entity_id) ?? asString2(entry.eid) ?? asString2(entry.entityId) ?? asString2(entry.id);
   if (!entityId) {
     return null;
   }
-  const name = asString(entry.en) ?? asString(entry.display_name) ?? asString(entry.dn) ?? asString(entry.name) ?? asString(entry.n) ?? asString(entry.original_name) ?? asString(entry.on) ?? entityId;
-  const icon = asString(entry.ic) ?? asString(entry.icon) ?? asString(entry.i) ?? void 0;
+  const name = asString2(entry.en) ?? asString2(entry.display_name) ?? asString2(entry.dn) ?? asString2(entry.name) ?? asString2(entry.n) ?? asString2(entry.original_name) ?? asString2(entry.on) ?? entityId;
+  const icon = asString2(entry.ic) ?? asString2(entry.icon) ?? asString2(entry.i) ?? void 0;
   return { entity_id: entityId, name, icon };
 }
-function asString(value) {
+function asString2(value) {
   return typeof value === "string" && value.trim() ? value : void 0;
-}
-function entityLabel(stateObj, fallback, entityId) {
-  return asString(stateObj?.attributes.friendly_name) ?? fallback?.name ?? entityId;
-}
-function entityIcon(stateObj, fallback) {
-  return asString(stateObj?.attributes.icon) ?? fallback?.icon ?? "mdi:map-marker";
 }
 function entityIsActive(stateObj) {
   return Boolean(stateObj && stateObj.state === "on");
-}
-function entityUsesLampPalette(entityId, stateObj, fallback) {
-  const domain = entityId.split(".")[0];
-  if (domain === "light") {
-    return true;
-  }
-  const name = entityLabel(stateObj, fallback, entityId).toLowerCase();
-  if (name.includes("lamp")) {
-    return true;
-  }
-  const icon = entityIcon(stateObj, fallback).toLowerCase();
-  return icon.includes("lamp") || icon.includes("lightbulb");
 }
 function appendCacheBuster(path, layout) {
   const marker = layout.image?.updated_at ?? Date.now().toString();
@@ -1250,7 +1331,7 @@ var FloorMapCard = class extends FloorMapBaseElement {
   }
   _renderCardMarker(placement) {
     const stateObj = this.hass?.states[placement.entity_id];
-    const icon = entityIcon(stateObj, void 0);
+    const icon = entityIcon(placement.entity_id, stateObj, void 0);
     const label = entityLabel(stateObj, void 0, placement.entity_id);
     const isLight = entityUsesLampPalette(placement.entity_id, stateObj, void 0);
     const markerClasses = [
@@ -1649,10 +1730,11 @@ var FloorMapPanel = class extends FloorMapBaseElement {
     `;
   }
   _renderEntityRow(entry) {
+    const stateObj = this.hass?.states[entry.entity_id];
     return b2`
       <div class="entity-row">
         <div class="entity-row-top">
-          <span class="marker-icon"><ha-icon .icon=${entry.icon ?? "mdi:devices"}></ha-icon></span>
+          <span class="marker-icon"><ha-icon .icon=${entityIcon(entry.entity_id, stateObj, entry)}></ha-icon></span>
           <div class="entity-meta">
             <div class="entity-name">${entry.name}</div>
             <div class="entity-id">${entry.entity_id}</div>
@@ -1671,7 +1753,7 @@ var FloorMapPanel = class extends FloorMapBaseElement {
     return b2`
       <div class="placed-row">
         <div class="placed-row-top">
-          <span class="marker-icon"><ha-icon .icon=${entityIcon(stateObj, indexEntry)}></ha-icon></span>
+          <span class="marker-icon"><ha-icon .icon=${entityIcon(placement.entity_id, stateObj, indexEntry)}></ha-icon></span>
           <div class="placed-meta">
             <div class="placed-name">${label}</div>
             <div class="placed-id">${placement.entity_id}</div>
@@ -1720,7 +1802,7 @@ var FloorMapPanel = class extends FloorMapBaseElement {
           title=${label}
           aria-label=${label}
         >
-          <span class="marker-icon"><ha-icon .icon=${entityIcon(stateObj, indexEntry)}></ha-icon></span>
+          <span class="marker-icon"><ha-icon .icon=${entityIcon(placement.entity_id, stateObj, indexEntry)}></ha-icon></span>
         </div>
       </div>
     `;
@@ -1746,7 +1828,7 @@ var FloorMapPanel = class extends FloorMapBaseElement {
     return Object.values(states).map((stateObj) => ({
       entity_id: stateObj.entity_id,
       name: entityLabel(stateObj, void 0, stateObj.entity_id),
-      icon: entityIcon(stateObj, void 0)
+      icon: entityIcon(stateObj.entity_id, stateObj, void 0)
     })).sort((left, right) => left.name.localeCompare(right.name));
   }
   _filteredEntities() {

@@ -2,6 +2,7 @@ import { LitElement, css, html, nothing } from "lit";
 import type { PropertyValues, TemplateResult } from "lit";
 
 import { resolveEntityAction } from "./lib/entity-actions";
+import { entityIcon, entityLabel, entityUsesLampPalette } from "./lib/entity-display";
 import { clampCoordinate, MAX_SCALE, MIN_SCALE, zoomAroundPoint } from "./lib/floormap-math";
 import type {
   EntityIndexEntry,
@@ -311,51 +312,8 @@ function asString(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() ? value : undefined;
 }
 
-function stateDisplay(stateObj?: HassEntity): string | undefined {
-  if (!stateObj) {
-    return undefined;
-  }
-  const unit = asString(stateObj.attributes.unit_of_measurement);
-  return unit ? `${stateObj.state} ${unit}` : stateObj.state;
-}
-
-function entityLabel(stateObj: HassEntity | undefined, fallback: EntityIndexEntry | undefined, entityId: string): string {
-  return (
-    asString(stateObj?.attributes.friendly_name) ??
-    fallback?.name ??
-    entityId
-  );
-}
-
-function entityIcon(stateObj: HassEntity | undefined, fallback: EntityIndexEntry | undefined): string {
-  return (
-    asString(stateObj?.attributes.icon) ??
-    fallback?.icon ??
-    "mdi:map-marker"
-  );
-}
-
 function entityIsActive(stateObj: HassEntity | undefined): boolean {
   return Boolean(stateObj && stateObj.state === "on");
-}
-
-function entityUsesLampPalette(
-  entityId: string,
-  stateObj: HassEntity | undefined,
-  fallback: EntityIndexEntry | undefined
-): boolean {
-  const domain = entityId.split(".")[0];
-  if (domain === "light") {
-    return true;
-  }
-
-  const name = entityLabel(stateObj, fallback, entityId).toLowerCase();
-  if (name.includes("lamp")) {
-    return true;
-  }
-
-  const icon = entityIcon(stateObj, fallback).toLowerCase();
-  return icon.includes("lamp") || icon.includes("lightbulb");
 }
 
 function appendCacheBuster(path: string, layout: FloorMapLayout): string {
@@ -788,7 +746,7 @@ class FloorMapCard extends FloorMapBaseElement {
 
   private _renderCardMarker(placement: FloorMapPlacement): TemplateResult {
     const stateObj = this.hass?.states[placement.entity_id];
-    const icon = entityIcon(stateObj, undefined);
+    const icon = entityIcon(placement.entity_id, stateObj, undefined);
     const label = entityLabel(stateObj, undefined, placement.entity_id);
     const isLight = entityUsesLampPalette(placement.entity_id, stateObj, undefined);
     const markerClasses = [
@@ -1221,10 +1179,11 @@ class FloorMapPanel extends FloorMapBaseElement {
   }
 
   private _renderEntityRow(entry: EntityIndexEntry): TemplateResult {
+    const stateObj = this.hass?.states[entry.entity_id];
     return html`
       <div class="entity-row">
         <div class="entity-row-top">
-          <span class="marker-icon"><ha-icon .icon=${entry.icon ?? "mdi:devices"}></ha-icon></span>
+          <span class="marker-icon"><ha-icon .icon=${entityIcon(entry.entity_id, stateObj, entry)}></ha-icon></span>
           <div class="entity-meta">
             <div class="entity-name">${entry.name}</div>
             <div class="entity-id">${entry.entity_id}</div>
@@ -1244,7 +1203,7 @@ class FloorMapPanel extends FloorMapBaseElement {
     return html`
       <div class="placed-row">
         <div class="placed-row-top">
-          <span class="marker-icon"><ha-icon .icon=${entityIcon(stateObj, indexEntry)}></ha-icon></span>
+          <span class="marker-icon"><ha-icon .icon=${entityIcon(placement.entity_id, stateObj, indexEntry)}></ha-icon></span>
           <div class="placed-meta">
             <div class="placed-name">${label}</div>
             <div class="placed-id">${placement.entity_id}</div>
@@ -1297,7 +1256,7 @@ class FloorMapPanel extends FloorMapBaseElement {
           title=${label}
           aria-label=${label}
         >
-          <span class="marker-icon"><ha-icon .icon=${entityIcon(stateObj, indexEntry)}></ha-icon></span>
+          <span class="marker-icon"><ha-icon .icon=${entityIcon(placement.entity_id, stateObj, indexEntry)}></ha-icon></span>
         </div>
       </div>
     `;
@@ -1331,7 +1290,7 @@ class FloorMapPanel extends FloorMapBaseElement {
       .map((stateObj) => ({
         entity_id: stateObj.entity_id,
         name: entityLabel(stateObj, undefined, stateObj.entity_id),
-        icon: entityIcon(stateObj, undefined),
+        icon: entityIcon(stateObj.entity_id, stateObj, undefined),
       }))
       .sort((left, right) => left.name.localeCompare(right.name));
   }
