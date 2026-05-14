@@ -693,6 +693,8 @@ var EVENT_LAYOUT_UPDATED = "floormap_layout_updated";
 var GET_LAYOUT_COMMAND = `${DOMAIN}/get_layout`;
 var SAVE_LAYOUT_COMMAND = `${DOMAIN}/save_layout`;
 var UPLOAD_FLOORPLAN_COMMAND = `${DOMAIN}/upload_floorplan`;
+var MARKER_LONG_PRESS_MS = 450;
+var MARKER_LONG_PRESS_MOVE_THRESHOLD = 10;
 var baseStyles = i`
   :host {
     display: block;
@@ -1228,6 +1230,28 @@ var FloorMapCard = class extends FloorMapBaseElement {
     this._config = { type: "custom:floor-map", show_labels: false };
     this._actionCache = /* @__PURE__ */ new Map();
     this._isPanning = false;
+    this._onMarkerPointerMove = (event) => {
+      if (!this._markerPressState || this._markerPressState.pointerId !== event.pointerId) {
+        return;
+      }
+      const movedX = event.clientX - this._markerPressState.startX;
+      const movedY = event.clientY - this._markerPressState.startY;
+      if (Math.hypot(movedX, movedY) >= MARKER_LONG_PRESS_MOVE_THRESHOLD) {
+        this._clearMarkerPressState(event);
+      }
+    };
+    this._onMarkerPointerLeave = (event) => {
+      if (!this._markerPressState || this._markerPressState.pointerId !== event.pointerId) {
+        return;
+      }
+      this._clearMarkerPressState(event);
+    };
+    this._onMarkerPointerEnd = (event) => {
+      if (!this._markerPressState || this._markerPressState.pointerId !== event.pointerId) {
+        return;
+      }
+      this._clearMarkerPressState(event);
+    };
   }
   static {
     this.properties = {
@@ -1349,12 +1373,51 @@ var FloorMapCard = class extends FloorMapBaseElement {
           class="marker-button"
           title=${label}
           aria-label=${label}
-          @click=${() => this._handleEntityTap(placement.entity_id)}
+          @pointerdown=${(event) => this._onMarkerPointerDown(placement.entity_id, event)}
+          @pointermove=${this._onMarkerPointerMove}
+          @pointerup=${this._onMarkerPointerEnd}
+          @pointercancel=${this._onMarkerPointerEnd}
+          @pointerleave=${this._onMarkerPointerLeave}
+          @click=${(event) => this._onMarkerClick(placement.entity_id, event)}
         >
           <span class="marker-icon"><ha-icon .icon=${icon}></ha-icon></span>
         </button>
       </div>
     `;
+  }
+  _onMarkerPointerDown(entityId, event) {
+    if (event.pointerType === "mouse" && event.button !== 0) {
+      return;
+    }
+    this._clearMarkerPressState();
+    const button = event.currentTarget;
+    button?.setPointerCapture(event.pointerId);
+    const timeoutId = window.setTimeout(() => {
+      if (!this._markerPressState || this._markerPressState.pointerId !== event.pointerId || this._markerPressState.entityId !== entityId) {
+        return;
+      }
+      this._suppressedClick = {
+        entityId,
+        until: Date.now() + 800
+      };
+      this._openMoreInfo(entityId);
+    }, MARKER_LONG_PRESS_MS);
+    this._markerPressState = {
+      pointerId: event.pointerId,
+      entityId,
+      startX: event.clientX,
+      startY: event.clientY,
+      timeoutId
+    };
+  }
+  _onMarkerClick(entityId, event) {
+    if (this._suppressedClick?.entityId === entityId && this._suppressedClick.until > Date.now()) {
+      this._suppressedClick = void 0;
+      event.preventDefault();
+      event.stopPropagation();
+      return;
+    }
+    void this._handleEntityTap(entityId);
   }
   async _handleEntityTap(entityId) {
     if (!this.hass) {
@@ -1367,9 +1430,7 @@ var FloorMapCard = class extends FloorMapBaseElement {
       await this.hass.callService(action.domain, action.service, { entity_id: entityId });
       return;
     }
-    if (stateObj) {
-      fireEvent(this, "hass-more-info", { entityId });
-    }
+    this._openMoreInfo(entityId);
   }
   async _serviceIdsForEntity(entityId) {
     if (this._actionCache.has(entityId)) {
@@ -1417,6 +1478,25 @@ var FloorMapCard = class extends FloorMapBaseElement {
     surface?.releasePointerCapture(event.pointerId);
     this._panState = void 0;
     this._isPanning = false;
+  }
+  _clearMarkerPressState(event) {
+    if (!this._markerPressState) {
+      return;
+    }
+    window.clearTimeout(this._markerPressState.timeoutId);
+    if (event?.currentTarget instanceof HTMLElement) {
+      try {
+        event.currentTarget.releasePointerCapture(event.pointerId);
+      } catch {
+      }
+    }
+    this._markerPressState = void 0;
+  }
+  _openMoreInfo(entityId) {
+    if (!this.hass?.states[entityId]) {
+      return;
+    }
+    fireEvent(this, "hass-more-info", { entityId });
   }
 };
 var FloorMapPanel = class extends FloorMapBaseElement {

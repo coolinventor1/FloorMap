@@ -20,6 +20,8 @@ const EVENT_LAYOUT_UPDATED = "floormap_layout_updated";
 const GET_LAYOUT_COMMAND = `${DOMAIN}/get_layout`;
 const SAVE_LAYOUT_COMMAND = `${DOMAIN}/save_layout`;
 const UPLOAD_FLOORPLAN_COMMAND = `${DOMAIN}/upload_floorplan`;
+const MARKER_LONG_PRESS_MS = 450;
+const MARKER_LONG_PRESS_MOVE_THRESHOLD = 10;
 
 type CompactEntityRegistryEntry = Record<string, unknown>;
 
@@ -667,6 +669,21 @@ class FloorMapCard extends FloorMapBaseElement {
       }
     | undefined;
   private _isPanning = false;
+  private _markerPressState:
+    | {
+        pointerId: number;
+        entityId: string;
+        startX: number;
+        startY: number;
+        timeoutId: number;
+      }
+    | undefined;
+  private _suppressedClick:
+    | {
+        entityId: string;
+        until: number;
+      }
+    | undefined;
 
   public static getConfigElement(): HTMLElement {
     return document.createElement("floor-map-card-editor");
@@ -767,12 +784,92 @@ class FloorMapCard extends FloorMapBaseElement {
           class="marker-button"
           title=${label}
           aria-label=${label}
-          @click=${() => this._handleEntityTap(placement.entity_id)}
+          @pointerdown=${(event: PointerEvent) => this._onMarkerPointerDown(placement.entity_id, event)}
+          @pointermove=${this._onMarkerPointerMove}
+          @pointerup=${this._onMarkerPointerEnd}
+          @pointercancel=${this._onMarkerPointerEnd}
+          @pointerleave=${this._onMarkerPointerLeave}
+          @click=${(event: MouseEvent) => this._onMarkerClick(placement.entity_id, event)}
         >
           <span class="marker-icon"><ha-icon .icon=${icon}></ha-icon></span>
         </button>
       </div>
     `;
+  }
+
+  private _onMarkerPointerDown(entityId: string, event: PointerEvent): void {
+    if (event.pointerType === "mouse" && event.button !== 0) {
+      return;
+    }
+
+    this._clearMarkerPressState();
+
+    const button = event.currentTarget as HTMLElement | null;
+    button?.setPointerCapture(event.pointerId);
+
+    const timeoutId = window.setTimeout(() => {
+      if (
+        !this._markerPressState ||
+        this._markerPressState.pointerId !== event.pointerId ||
+        this._markerPressState.entityId !== entityId
+      ) {
+        return;
+      }
+
+      this._suppressedClick = {
+        entityId,
+        until: Date.now() + 800,
+      };
+      this._openMoreInfo(entityId);
+    }, MARKER_LONG_PRESS_MS);
+
+    this._markerPressState = {
+      pointerId: event.pointerId,
+      entityId,
+      startX: event.clientX,
+      startY: event.clientY,
+      timeoutId,
+    };
+  }
+
+  private _onMarkerPointerMove = (event: PointerEvent): void => {
+    if (!this._markerPressState || this._markerPressState.pointerId !== event.pointerId) {
+      return;
+    }
+
+    const movedX = event.clientX - this._markerPressState.startX;
+    const movedY = event.clientY - this._markerPressState.startY;
+    if (Math.hypot(movedX, movedY) >= MARKER_LONG_PRESS_MOVE_THRESHOLD) {
+      this._clearMarkerPressState(event);
+    }
+  };
+
+  private _onMarkerPointerLeave = (event: PointerEvent): void => {
+    if (!this._markerPressState || this._markerPressState.pointerId !== event.pointerId) {
+      return;
+    }
+    this._clearMarkerPressState(event);
+  };
+
+  private _onMarkerPointerEnd = (event: PointerEvent): void => {
+    if (!this._markerPressState || this._markerPressState.pointerId !== event.pointerId) {
+      return;
+    }
+    this._clearMarkerPressState(event);
+  };
+
+  private _onMarkerClick(entityId: string, event: MouseEvent): void {
+    if (
+      this._suppressedClick?.entityId === entityId &&
+      this._suppressedClick.until > Date.now()
+    ) {
+      this._suppressedClick = undefined;
+      event.preventDefault();
+      event.stopPropagation();
+      return;
+    }
+
+    void this._handleEntityTap(entityId);
   }
 
   private async _handleEntityTap(entityId: string): Promise<void> {
@@ -788,9 +885,7 @@ class FloorMapCard extends FloorMapBaseElement {
       return;
     }
 
-    if (stateObj) {
-      fireEvent(this, "hass-more-info", { entityId });
-    }
+    this._openMoreInfo(entityId);
   }
 
   private async _serviceIdsForEntity(entityId: string): Promise<string[]> {
@@ -842,6 +937,31 @@ class FloorMapCard extends FloorMapBaseElement {
     surface?.releasePointerCapture(event.pointerId);
     this._panState = undefined;
     this._isPanning = false;
+  }
+
+  private _clearMarkerPressState(event?: PointerEvent): void {
+    if (!this._markerPressState) {
+      return;
+    }
+
+    window.clearTimeout(this._markerPressState.timeoutId);
+
+    if (event?.currentTarget instanceof HTMLElement) {
+      try {
+        event.currentTarget.releasePointerCapture(event.pointerId);
+      } catch {
+        // Pointer capture may already be released.
+      }
+    }
+
+    this._markerPressState = undefined;
+  }
+
+  private _openMoreInfo(entityId: string): void {
+    if (!this.hass?.states[entityId]) {
+      return;
+    }
+    fireEvent(this, "hass-more-info", { entityId });
   }
 }
 
