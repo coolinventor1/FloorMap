@@ -705,10 +705,11 @@ class FloorMapCard extends FloorMapBaseElement {
       }
 
       .fan-slider-shell {
-        display: flex;
+        display: grid;
+        grid-template-columns: auto minmax(6rem, 1fr) auto;
         align-items: center;
-        gap: 0.7rem;
-        width: min(16rem, max(11rem, calc(12.25rem * var(--marker-scale, 1))));
+        column-gap: 0.7rem;
+        width: clamp(13rem, calc(14rem * var(--marker-scale, 1)), 17rem);
         min-height: 2.9rem;
         padding: 0.55rem 0.8rem;
         border-radius: 999px;
@@ -734,13 +735,13 @@ class FloorMapCard extends FloorMapBaseElement {
       }
 
       .fan-slider-track {
-        flex: 1 1 auto;
         display: flex;
         align-items: center;
+        min-width: 0;
       }
 
       .fan-slider-value {
-        min-width: 2.8rem;
+        min-width: 3ch;
         text-align: right;
         font-size: 0.8rem;
         color: color-mix(in srgb, var(--primary-text-color) 78%, var(--floormap-muted));
@@ -749,8 +750,7 @@ class FloorMapCard extends FloorMapBaseElement {
       }
 
       .fan-slider-input {
-        flex: 1 1 auto;
-        min-width: 6.5rem;
+        min-width: 0;
         height: 1.25rem;
         width: 100%;
         margin: 0;
