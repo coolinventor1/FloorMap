@@ -264,6 +264,7 @@ function defineOnce(tagName: string, ctor: CustomElementConstructor): void {
 
 function decodeEntityRegistryEntry(entry: CompactEntityRegistryEntry): EntityIndexEntry | null {
   const entityId =
+    asString(entry.ei) ??
     asString(entry.entity_id) ??
     asString(entry.eid) ??
     asString(entry.entityId) ??
@@ -273,6 +274,7 @@ function decodeEntityRegistryEntry(entry: CompactEntityRegistryEntry): EntityInd
   }
 
   const name =
+    asString(entry.en) ??
     asString(entry.display_name) ??
     asString(entry.dn) ??
     asString(entry.name) ??
@@ -282,6 +284,7 @@ function decodeEntityRegistryEntry(entry: CompactEntityRegistryEntry): EntityInd
     entityId;
 
   const icon =
+    asString(entry.ic) ??
     asString(entry.icon) ??
     asString(entry.i) ??
     undefined;
@@ -1152,13 +1155,28 @@ class FloorMapPanel extends FloorMapBaseElement {
         { entities?: CompactEntityRegistryEntry[] } | CompactEntityRegistryEntry[]
       >({ type: "config/entity_registry/list_for_display" });
       const rows = Array.isArray(payload) ? payload : payload.entities ?? [];
-      this._entities = rows
+      const decoded = rows
         .map((entry) => decodeEntityRegistryEntry(entry))
         .filter((entry): entry is EntityIndexEntry => entry !== null)
         .sort((left, right) => left.name.localeCompare(right.name));
+      this._entities = decoded.length ? decoded : this._fallbackEntitiesFromStates();
     } catch (error) {
-      this._error = error instanceof Error ? error.message : "Unable to load entity list";
+      this._entities = this._fallbackEntitiesFromStates();
+      if (!this._entities.length) {
+        this._error = error instanceof Error ? error.message : "Unable to load entity list";
+      }
     }
+  }
+
+  private _fallbackEntitiesFromStates(): EntityIndexEntry[] {
+    const states = this.hass?.states ?? {};
+    return Object.values(states)
+      .map((stateObj) => ({
+        entity_id: stateObj.entity_id,
+        name: entityLabel(stateObj, undefined, stateObj.entity_id),
+        icon: entityIcon(stateObj, undefined),
+      }))
+      .sort((left, right) => left.name.localeCompare(right.name));
   }
 
   private _filteredEntities(): EntityIndexEntry[] {

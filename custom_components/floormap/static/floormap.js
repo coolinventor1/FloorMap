@@ -830,12 +830,12 @@ function defineOnce(tagName, ctor) {
   }
 }
 function decodeEntityRegistryEntry(entry) {
-  const entityId = asString(entry.entity_id) ?? asString(entry.eid) ?? asString(entry.entityId) ?? asString(entry.id);
+  const entityId = asString(entry.ei) ?? asString(entry.entity_id) ?? asString(entry.eid) ?? asString(entry.entityId) ?? asString(entry.id);
   if (!entityId) {
     return null;
   }
-  const name = asString(entry.display_name) ?? asString(entry.dn) ?? asString(entry.name) ?? asString(entry.n) ?? asString(entry.original_name) ?? asString(entry.on) ?? entityId;
-  const icon = asString(entry.icon) ?? asString(entry.i) ?? void 0;
+  const name = asString(entry.en) ?? asString(entry.display_name) ?? asString(entry.dn) ?? asString(entry.name) ?? asString(entry.n) ?? asString(entry.original_name) ?? asString(entry.on) ?? entityId;
+  const icon = asString(entry.ic) ?? asString(entry.icon) ?? asString(entry.i) ?? void 0;
   return { entity_id: entityId, name, icon };
 }
 function asString(value) {
@@ -1608,10 +1608,22 @@ var FloorMapPanel = class extends FloorMapBaseElement {
     try {
       const payload = await this.hass.callWS({ type: "config/entity_registry/list_for_display" });
       const rows = Array.isArray(payload) ? payload : payload.entities ?? [];
-      this._entities = rows.map((entry) => decodeEntityRegistryEntry(entry)).filter((entry) => entry !== null).sort((left, right) => left.name.localeCompare(right.name));
+      const decoded = rows.map((entry) => decodeEntityRegistryEntry(entry)).filter((entry) => entry !== null).sort((left, right) => left.name.localeCompare(right.name));
+      this._entities = decoded.length ? decoded : this._fallbackEntitiesFromStates();
     } catch (error) {
-      this._error = error instanceof Error ? error.message : "Unable to load entity list";
+      this._entities = this._fallbackEntitiesFromStates();
+      if (!this._entities.length) {
+        this._error = error instanceof Error ? error.message : "Unable to load entity list";
+      }
     }
+  }
+  _fallbackEntitiesFromStates() {
+    const states = this.hass?.states ?? {};
+    return Object.values(states).map((stateObj) => ({
+      entity_id: stateObj.entity_id,
+      name: entityLabel(stateObj, void 0, stateObj.entity_id),
+      icon: entityIcon(stateObj, void 0)
+    })).sort((left, right) => left.name.localeCompare(right.name));
   }
   _filteredEntities() {
     const query = this._query.trim().toLowerCase();
