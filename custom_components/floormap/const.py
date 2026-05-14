@@ -4,7 +4,7 @@ from __future__ import annotations
 
 DOMAIN = "floormap"
 NAME = "FloorMap"
-VERSION = "0.1.0"
+VERSION = "0.1.1"
 
 EVENT_LAYOUT_UPDATED = "floormap_layout_updated"
 
@@ -33,4 +33,3 @@ ALLOWED_IMAGE_TYPES: dict[str, str] = {
     "image/jpeg": ".jpg",
     "image/jpg": ".jpg",
 }
-
