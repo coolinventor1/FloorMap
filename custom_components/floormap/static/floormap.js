@@ -1717,9 +1717,6 @@ var FloorMapCard = class extends FloorMapBaseElement {
           class="room-lighting"
           style=${`${background ? `background:${background};` : ""} clip-path:${roomClipPath(room)};`}
         ></div>
-        <svg class="room-outline-svg" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
-          <polygon class="room-outline" points=${roomPolygonPoints(room)}></polygon>
-        </svg>
         <div class="room-label">${room.name}</div>
       </div>
     `;
