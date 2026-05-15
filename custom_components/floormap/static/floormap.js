@@ -687,36 +687,76 @@ function zoomAroundPoint(transform, anchorX, anchorY, nextScale) {
 }
 
 // src/lib/rooms.ts
-var MIN_ROOM_SIZE = 0.05;
-function clampRoomSize(value) {
-  return Math.max(MIN_ROOM_SIZE, Math.min(1, value));
+var MIN_ROOM_POINTS = 3;
+function clampCoordinate2(value) {
+  return Math.max(0, Math.min(1, value));
+}
+function clampRoomPoint(point) {
+  return {
+    x: clampCoordinate2(point.x),
+    y: clampCoordinate2(point.y)
+  };
+}
+function roomBounds(room) {
+  const xs = room.points.map((point) => point.x);
+  const ys = room.points.map((point) => point.y);
+  const minX = Math.min(...xs);
+  const minY = Math.min(...ys);
+  const maxX = Math.max(...xs);
+  const maxY = Math.max(...ys);
+  return {
+    x: minX,
+    y: minY,
+    width: Math.max(1e-3, maxX - minX),
+    height: Math.max(1e-3, maxY - minY)
+  };
+}
+function roomStyle(room) {
+  const bounds = roomBounds(room);
+  return `left:${bounds.x * 100}%; top:${bounds.y * 100}%; width:${bounds.width * 100}%; height:${bounds.height * 100}%;`;
+}
+function roomRelativePoints(room) {
+  const bounds = roomBounds(room);
+  return room.points.map((point) => ({
+    x: (point.x - bounds.x) / bounds.width * 100,
+    y: (point.y - bounds.y) / bounds.height * 100
+  }));
+}
+function roomPolygonPoints(room) {
+  return roomRelativePoints(room).map((point) => `${point.x.toFixed(2)},${point.y.toFixed(2)}`).join(" ");
+}
+function roomClipPath(room) {
+  return `polygon(${roomRelativePoints(room).map((point) => `${point.x.toFixed(2)}% ${point.y.toFixed(2)}%`).join(", ")})`;
 }
 function roomContainsPoint(room, x2, y3) {
-  return x2 >= room.x && x2 <= room.x + room.width && y3 >= room.y && y3 <= room.y + room.height;
+  let inside = false;
+  for (let index = 0, previous = room.points.length - 1; index < room.points.length; previous = index++) {
+    const currentPoint = room.points[index];
+    const previousPoint = room.points[previous];
+    const intersects = currentPoint.y > y3 !== previousPoint.y > y3 && x2 < (previousPoint.x - currentPoint.x) * (y3 - currentPoint.y) / (previousPoint.y - currentPoint.y || Number.EPSILON) + currentPoint.x;
+    if (intersects) {
+      inside = !inside;
+    }
+  }
+  return inside;
 }
 function roomContainsPlacement(room, placement) {
   return roomContainsPoint(room, placement.x, placement.y);
 }
-function clampRoomRect(room) {
-  const x2 = Math.max(0, Math.min(1, room.x));
-  const y3 = Math.max(0, Math.min(1, room.y));
-  const width = Math.min(clampRoomSize(room.width), 1 - x2);
-  const height = Math.min(clampRoomSize(room.height), 1 - y3);
-  return { ...room, x: x2, y: y3, width, height };
-}
 function createRoomLightingBackground(room, placements) {
+  const bounds = roomBounds(room);
   const gradients = placements.filter((placement) => roomContainsPlacement(room, placement)).map((placement) => {
-    const localX = (placement.x - room.x) / room.width * 100;
-    const localY = (placement.y - room.y) / room.height * 100;
-    const inner = Math.min(26, 12 + placement.size * 8);
-    const middle = Math.min(58, 28 + placement.size * 14);
-    const outer = Math.min(96, 56 + placement.size * 18);
-    return `radial-gradient(circle at ${localX.toFixed(2)}% ${localY.toFixed(2)}%, rgba(255, 249, 224, 0.82) 0%, rgba(255, 232, 156, 0.52) ${inner.toFixed(2)}%, rgba(255, 216, 112, 0.24) ${middle.toFixed(2)}%, rgba(255, 206, 92, 0.04) ${outer.toFixed(2)}%, rgba(255, 206, 92, 0) 100%)`;
+    const localX = (placement.x - bounds.x) / bounds.width * 100;
+    const localY = (placement.y - bounds.y) / bounds.height * 100;
+    const inner = Math.min(16, 7 + placement.size * 4);
+    const middle = Math.min(32, 15 + placement.size * 7);
+    const outer = Math.min(54, 26 + placement.size * 9);
+    return `radial-gradient(circle at ${localX.toFixed(2)}% ${localY.toFixed(2)}%, rgba(255, 250, 232, 0.88) 0%, rgba(255, 234, 168, 0.46) ${inner.toFixed(2)}%, rgba(255, 216, 112, 0.18) ${middle.toFixed(2)}%, rgba(255, 206, 92, 0.03) ${outer.toFixed(2)}%, rgba(255, 206, 92, 0) 100%)`;
   });
   if (!gradients.length) {
     return void 0;
   }
-  gradients.push("linear-gradient(180deg, rgba(255, 240, 190, 0.10), rgba(255, 240, 190, 0.18))");
+  gradients.push("linear-gradient(180deg, rgba(255, 244, 210, 0.05), rgba(255, 244, 210, 0.08))");
   return gradients.join(", ");
 }
 
@@ -859,15 +899,22 @@ var baseStyles = i`
   }
 
   .rooms,
+  .room-points-layer,
   .markers {
     position: absolute;
     inset: 0;
+  }
+
+  .rooms,
+  .room-points-layer {
+    pointer-events: none;
   }
 
   .room {
     position: absolute;
     overflow: hidden;
     border-radius: 12px;
+    pointer-events: none;
   }
 
   .room-lighting {
@@ -877,13 +924,20 @@ var baseStyles = i`
     opacity: 0.96;
   }
 
-  .room-box {
+  .room-outline-svg {
     position: absolute;
     inset: 0;
-    border: 1.5px solid rgba(59, 130, 246, 0.42);
-    border-radius: 12px;
-    background: rgba(59, 130, 246, 0.06);
-    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.24);
+    width: 100%;
+    height: 100%;
+    overflow: visible;
+    pointer-events: none;
+  }
+
+  .room-outline {
+    fill: rgba(59, 130, 246, 0.06);
+    stroke: rgba(59, 130, 246, 0.46);
+    stroke-width: 1.6;
+    vector-effect: non-scaling-stroke;
   }
 
   .room-label {
@@ -905,9 +959,48 @@ var baseStyles = i`
     pointer-events: none;
   }
 
-  .room.is-lit .room-box {
-    border-color: rgba(245, 184, 73, 0.5);
-    background: rgba(255, 244, 216, 0.08);
+  .room.is-lit .room-outline {
+    fill: rgba(255, 244, 216, 0.07);
+    stroke: rgba(245, 184, 73, 0.52);
+  }
+
+  .room-point-handle {
+    position: absolute;
+    width: 0.9rem;
+    height: 0.9rem;
+    border-radius: 50%;
+    border: 1px solid rgba(255, 255, 255, 0.96);
+    background: rgba(37, 99, 235, 0.92);
+    box-shadow: 0 1px 6px rgba(15, 23, 42, 0.22);
+    transform: translate(-50%, -50%);
+    cursor: grab;
+    touch-action: none;
+    pointer-events: auto;
+  }
+
+  .room-point-handle:active {
+    cursor: grabbing;
+  }
+
+  .room-point-handle.is-draft {
+    background: rgba(245, 184, 73, 0.96);
+  }
+
+  .room-draft-svg {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    overflow: visible;
+    pointer-events: none;
+  }
+
+  .room-draft-shape {
+    fill: rgba(59, 130, 246, 0.08);
+    stroke: rgba(37, 99, 235, 0.76);
+    stroke-width: 1.8;
+    stroke-dasharray: 4 4;
+    vector-effect: non-scaling-stroke;
   }
 
   .marker {
@@ -1076,8 +1169,8 @@ function generateRoomId() {
   }
   return `room-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
-function roomStyle(room) {
-  return `left:${room.x * 100}%; top:${room.y * 100}%; width:${room.width * 100}%; height:${room.height * 100}%;`;
+function roomPointHandleStyle(point) {
+  return `left:${point.x * 100}%; top:${point.y * 100}%;`;
 }
 function activeLightPlacementsForRoom(room, placements, resolveState, resolveIndexEntry) {
   return placements.filter((placement) => {
@@ -1620,8 +1713,13 @@ var FloorMapCard = class extends FloorMapBaseElement {
     const background = createRoomLightingBackground(room, activeLights);
     return b2`
       <div class="room ${background ? "is-lit" : ""}" style=${roomStyle(room)}>
-        <div class="room-lighting" style=${background ? `background:${background};` : ""}></div>
-        <div class="room-box"></div>
+        <div
+          class="room-lighting"
+          style=${`${background ? `background:${background};` : ""} clip-path:${roomClipPath(room)};`}
+        ></div>
+        <svg class="room-outline-svg" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
+          <polygon class="room-outline" points=${roomPolygonPoints(room)}></polygon>
+        </svg>
         <div class="room-label">${room.name}</div>
       </div>
     `;
@@ -1895,8 +1993,8 @@ var FloorMapPanel = class extends FloorMapBaseElement {
     this._draftRooms = [];
     this._pendingEntityId = null;
     this._pendingRoomName = null;
+    this._pendingRoomPoints = [];
     this._roomName = "";
-    this._roomDraftPreview = null;
     this._saving = false;
     this._uploading = false;
     this._dirty = false;
@@ -1910,11 +2008,30 @@ var FloorMapPanel = class extends FloorMapBaseElement {
     this._startRoomDraw = () => {
       this._pendingEntityId = null;
       this._pendingRoomName = this._roomName.trim() || DEFAULT_ROOM_NAME;
-      this._roomDraftPreview = null;
+      this._pendingRoomPoints = [];
     };
     this._cancelRoomDraw = () => {
       this._pendingRoomName = null;
-      this._roomDraftPreview = null;
+      this._pendingRoomPoints = [];
+    };
+    this._undoPendingRoomPoint = () => {
+      this._pendingRoomPoints = this._pendingRoomPoints.slice(0, -1);
+    };
+    this._finishRoomDraw = () => {
+      if (!this._pendingRoomName || this._pendingRoomPoints.length < MIN_ROOM_POINTS) {
+        return;
+      }
+      this._draftRooms = [
+        ...this._draftRooms,
+        {
+          id: generateRoomId(),
+          name: this._pendingRoomName,
+          points: this._pendingRoomPoints
+        }
+      ];
+      this._dirty = true;
+      this._pendingRoomName = null;
+      this._pendingRoomPoints = [];
     };
   }
   static {
@@ -1927,7 +2044,7 @@ var FloorMapPanel = class extends FloorMapBaseElement {
       _pendingEntityId: { state: true },
       _pendingRoomName: { state: true },
       _roomName: { state: true },
-      _roomDraftPreview: { state: true },
+      _pendingRoomPoints: { state: true },
       _saving: { state: true },
       _uploading: { state: true },
       _dirty: { state: true },
@@ -2076,36 +2193,6 @@ var FloorMapPanel = class extends FloorMapBaseElement {
         touch-action: none;
       }
 
-      .room-box.is-editable {
-        pointer-events: auto;
-        cursor: grab;
-        border-style: dashed;
-      }
-
-      .room-box.is-editable:active {
-        cursor: grabbing;
-      }
-
-      .room-box.is-preview {
-        border-style: dashed;
-        border-color: rgba(37, 99, 235, 0.72);
-        background: rgba(59, 130, 246, 0.12);
-      }
-
-      .room-resize-handle {
-        position: absolute;
-        right: 0.35rem;
-        bottom: 0.35rem;
-        width: 0.9rem;
-        height: 0.9rem;
-        border-radius: 50%;
-        border: 1px solid rgba(255, 255, 255, 0.92);
-        background: rgba(37, 99, 235, 0.9);
-        box-shadow: 0 1px 5px rgba(15, 23, 42, 0.24);
-        pointer-events: auto;
-        cursor: nwse-resize;
-      }
-
       .room-input {
         width: 100%;
       }
@@ -2139,11 +2226,14 @@ var FloorMapPanel = class extends FloorMapBaseElement {
   }
   async _afterLayoutLoad(layout) {
     this._draftPlacements = layout.placements.map((placement) => ({ ...placement }));
-    this._draftRooms = layout.rooms.map((room) => ({ ...room }));
+    this._draftRooms = layout.rooms.map((room) => ({
+      ...room,
+      points: room.points.map((point) => ({ ...point }))
+    }));
     this._dirty = false;
     this._pendingEntityId = null;
     this._pendingRoomName = null;
-    this._roomDraftPreview = null;
+    this._pendingRoomPoints = [];
     this._resetView();
   }
   render() {
@@ -2187,7 +2277,7 @@ var FloorMapPanel = class extends FloorMapBaseElement {
 
           <section class="section">
             <h3>Rooms</h3>
-            <div class="muted">Draw room boxes so FloorMap can clip light spread inside each room.</div>
+            <div class="muted">Click points around a room, then press Done to save the boundary.</div>
             <input
               class="room-input"
               type="text"
@@ -2199,6 +2289,8 @@ var FloorMapPanel = class extends FloorMapBaseElement {
               <button @click=${this._startRoomDraw}>
                 ${this._pendingRoomName ? "Drawing room\u2026" : "Draw room"}
               </button>
+              ${this._pendingRoomName ? b2`<button @click=${this._undoPendingRoomPoint} ?disabled=${!this._pendingRoomPoints.length}>Undo point</button>` : A}
+              ${this._pendingRoomName ? b2`<button @click=${this._finishRoomDraw} ?disabled=${this._pendingRoomPoints.length < MIN_ROOM_POINTS}>Done</button>` : A}
               ${this._pendingRoomName ? b2`<button @click=${this._cancelRoomDraw}>Cancel</button>` : A}
             </div>
             <div class="room-list">
@@ -2223,8 +2315,10 @@ var FloorMapPanel = class extends FloorMapBaseElement {
             <div class="toolbar-spacer"></div>
             ${this._pendingRoomName ? b2`
                   <span class="status-banner">
-                    Drag on the floor plan to draw ${this._pendingRoomName}.
+                    Click points for ${this._pendingRoomName}, then press Done.
                   </span>
+                  <button @click=${this._undoPendingRoomPoint} ?disabled=${!this._pendingRoomPoints.length}>Undo point</button>
+                  <button @click=${this._finishRoomDraw} ?disabled=${this._pendingRoomPoints.length < MIN_ROOM_POINTS}>Done</button>
                   <button @click=${this._cancelRoomDraw}>Cancel</button>
                 ` : A}
             ${this._pendingEntityId ? b2`
@@ -2278,7 +2372,17 @@ var FloorMapPanel = class extends FloorMapBaseElement {
                 <img class="map-image" src=${this._imageUrl} alt="Floor plan" />
                 <div class="rooms">
                   ${this._draftRooms.map((room) => this._renderEditorRoom(room))}
-                  ${this._roomDraftPreview ? this._renderEditorRoom(this._roomDraftPreview, true) : A}
+                  ${this._pendingRoomPoints.length >= MIN_ROOM_POINTS ? this._renderDraftRoom() : A}
+                </div>
+                <div class="room-points-layer">
+                  ${this._draftRooms.map((room) => this._renderRoomPointHandles(room))}
+                  ${this._pendingRoomPoints.map(
+      (point, index) => b2`<div
+                      class="room-point-handle is-draft"
+                      style=${roomPointHandleStyle(point)}
+                      title=${`Draft point ${index + 1}`}
+                    ></div>`
+    )}
                 </div>
                 <div class="markers">
                   ${this._draftPlacements.map((placement) => this._renderEditorMarker(placement))}
@@ -2297,7 +2401,7 @@ var FloorMapPanel = class extends FloorMapBaseElement {
           <div class="room-meta">
             <div class="room-name">${room.name}</div>
             <div class="room-details">
-              ${Math.round(room.width * 100)}% x ${Math.round(room.height * 100)}%
+              ${room.points.length} points
             </div>
           </div>
         </div>
@@ -2400,17 +2504,35 @@ var FloorMapPanel = class extends FloorMapBaseElement {
     const background = createRoomLightingBackground(room, activeLights);
     return b2`
       <div class="room ${background ? "is-lit" : ""}" style=${roomStyle(room)}>
-        <div class="room-lighting" style=${background ? `background:${background};` : ""}></div>
         <div
-          class=${`room-box ${preview ? "is-preview" : "is-editable"}`}
-          data-room-id=${room.id}
-          title=${room.name}
-          aria-label=${room.name}
+          class="room-lighting"
+          style=${`${background ? `background:${background};` : ""} clip-path:${roomClipPath(room)};`}
         ></div>
+        <svg class="room-outline-svg" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
+          <polygon class=${preview ? "room-draft-shape" : "room-outline"} points=${roomPolygonPoints(room)}></polygon>
+        </svg>
         <div class="room-label">${room.name}</div>
-        ${preview ? A : b2`<div class="room-resize-handle" data-room-resize-id=${room.id} title="Resize ${room.name}"></div>`}
       </div>
     `;
+  }
+  _renderRoomPointHandles(room) {
+    return room.points.map(
+      (point, index) => b2`<div
+        class="room-point-handle"
+        data-room-id=${room.id}
+        data-room-point-index=${String(index)}
+        style=${roomPointHandleStyle(point)}
+        title=${`${room.name} point ${index + 1}`}
+      ></div>`
+    );
+  }
+  _renderDraftRoom() {
+    const draftRoom = {
+      id: "draft-room",
+      name: this._pendingRoomName ?? DEFAULT_ROOM_NAME,
+      points: this._pendingRoomPoints
+    };
+    return this._renderEditorRoom(draftRoom, true);
   }
   async _loadEntityIndex() {
     if (!this.hass) {
@@ -2451,7 +2573,7 @@ var FloorMapPanel = class extends FloorMapBaseElement {
   }
   _startPlacement(entityId) {
     this._pendingRoomName = null;
-    this._roomDraftPreview = null;
+    this._pendingRoomPoints = [];
     this._pendingEntityId = entityId;
   }
   _pendingEntityLabel() {
@@ -2544,59 +2666,25 @@ var FloorMapPanel = class extends FloorMapBaseElement {
   _onEditorPointerDown(event) {
     const target = event.target;
     const marker = target.closest(".marker-chip");
-    const roomResize = target.closest(".room-resize-handle");
-    const roomBox = target.closest(".room-box.is-editable");
+    const roomPointHandle = target.closest(".room-point-handle");
     const surface = this._mapSurface();
     if (!surface) {
       return;
     }
-    const point = this._normalizedPointFromClient(event.clientX, event.clientY);
-    if (this._pendingRoomName && point) {
-      this._panState = {
-        mode: "room-draw",
-        pointerId: event.pointerId,
-        name: this._pendingRoomName,
-        startPoint: point
-      };
-      this._roomDraftPreview = clampRoomRect({
-        id: "draft-room",
-        name: this._pendingRoomName,
-        x: point.x,
-        y: point.y,
-        width: MIN_ROOM_SIZE,
-        height: MIN_ROOM_SIZE
-      });
-      event.preventDefault();
-      surface.setPointerCapture(event.pointerId);
+    if (this._pendingRoomName) {
       return;
     }
-    if (!this._pendingEntityId && roomResize && point) {
-      const room = this._draftRooms.find((entry) => entry.id === roomResize.dataset.roomResizeId);
-      if (!room) {
+    if (!this._pendingEntityId && roomPointHandle) {
+      const roomId = roomPointHandle.dataset.roomId;
+      const pointIndex = Number(roomPointHandle.dataset.roomPointIndex);
+      if (!roomId || !Number.isInteger(pointIndex)) {
         return;
       }
       this._panState = {
-        mode: "room-resize",
+        mode: "room-point",
         pointerId: event.pointerId,
-        roomId: room.id,
-        startPoint: point,
-        room: { ...room }
-      };
-      event.preventDefault();
-      surface.setPointerCapture(event.pointerId);
-      return;
-    }
-    if (!this._pendingEntityId && roomBox && point) {
-      const room = this._draftRooms.find((entry) => entry.id === roomBox.dataset.roomId);
-      if (!room) {
-        return;
-      }
-      this._panState = {
-        mode: "room-move",
-        pointerId: event.pointerId,
-        roomId: room.id,
-        startPoint: point,
-        room: { ...room }
+        roomId,
+        pointIndex
       };
       event.preventDefault();
       surface.setPointerCapture(event.pointerId);
@@ -2648,41 +2736,14 @@ var FloorMapPanel = class extends FloorMapBaseElement {
     if (!point) {
       return;
     }
-    if (activeState.mode === "room-draw") {
-      this._roomDraftPreview = clampRoomRect({
-        id: "draft-room",
-        name: activeState.name,
-        x: Math.min(activeState.startPoint.x, point.x),
-        y: Math.min(activeState.startPoint.y, point.y),
-        width: Math.max(MIN_ROOM_SIZE, Math.abs(point.x - activeState.startPoint.x)),
-        height: Math.max(MIN_ROOM_SIZE, Math.abs(point.y - activeState.startPoint.y))
-      });
-      return;
-    }
-    if (activeState.mode === "room-move") {
-      const deltaX = point.x - activeState.startPoint.x;
-      const deltaY = point.y - activeState.startPoint.y;
-      const nextRoom = clampRoomRect({
-        ...activeState.room,
-        x: Math.max(0, Math.min(1 - activeState.room.width, activeState.room.x + deltaX)),
-        y: Math.max(0, Math.min(1 - activeState.room.height, activeState.room.y + deltaY))
-      });
+    if (activeState.mode === "room-point") {
       this._draftRooms = this._draftRooms.map(
-        (room) => room.id === activeState.roomId ? nextRoom : room
-      );
-      this._dirty = true;
-      return;
-    }
-    if (activeState.mode === "room-resize") {
-      const deltaX = point.x - activeState.startPoint.x;
-      const deltaY = point.y - activeState.startPoint.y;
-      const nextRoom = clampRoomRect({
-        ...activeState.room,
-        width: activeState.room.width + deltaX,
-        height: activeState.room.height + deltaY
-      });
-      this._draftRooms = this._draftRooms.map(
-        (room) => room.id === activeState.roomId ? nextRoom : room
+        (room) => room.id === activeState.roomId ? {
+          ...room,
+          points: room.points.map(
+            (roomPoint, index) => index === activeState.pointIndex ? clampRoomPoint(point) : roomPoint
+          )
+        } : room
       );
       this._dirty = true;
     }
@@ -2691,34 +2752,25 @@ var FloorMapPanel = class extends FloorMapBaseElement {
     if (!this._panState || this._panState.pointerId !== event.pointerId) {
       return;
     }
-    if (this._panState.mode === "room-draw" && this._roomDraftPreview) {
-      this._draftRooms = [
-        ...this._draftRooms,
-        {
-          ...this._roomDraftPreview,
-          id: generateRoomId(),
-          name: this._pendingRoomName ?? this._roomDraftPreview.name
-        }
-      ];
-      this._dirty = true;
-      this._pendingRoomName = null;
-      this._roomDraftPreview = null;
-    }
     const surface = this._mapSurface();
     surface?.releasePointerCapture(event.pointerId);
     this._isPanning = false;
     this._panState = void 0;
   }
   _onEditorMapClick(event) {
-    if (!this._pendingEntityId || !this._layout?.image || this._pendingRoomName) {
-      return;
-    }
     const target = event.target;
-    if (target.closest(".marker-chip") || target.closest(".room-resize-handle")) {
+    if (target.closest(".marker-chip") || target.closest(".room-point-handle")) {
       return;
     }
     const point = this._normalizedPointFromClient(event.clientX, event.clientY);
     if (!point) {
+      return;
+    }
+    if (this._pendingRoomName) {
+      this._pendingRoomPoints = [...this._pendingRoomPoints, clampRoomPoint(point)];
+      return;
+    }
+    if (!this._pendingEntityId || !this._layout?.image) {
       return;
     }
     this._draftPlacements = [

@@ -26,15 +26,19 @@ class PlacementDict(TypedDict):
     size: float
 
 
+class RoomPointDict(TypedDict):
+    """Stored room point."""
+
+    x: float
+    y: float
+
+
 class RoomDict(TypedDict):
-    """Stored room rectangle."""
+    """Stored room polygon."""
 
     id: str
     name: str
-    x: float
-    y: float
-    width: float
-    height: float
+    points: list[RoomPointDict]
 
 
 class LayoutDict(TypedDict):
@@ -65,11 +69,6 @@ def clamp_marker_size(value: float) -> float:
     return max(0.6, min(2.4, float(value)))
 
 
-def clamp_room_size(value: float) -> float:
-    """Clamp a room dimension to a reasonable visible range."""
-    return max(0.05, min(1.0, float(value)))
-
-
 def normalize_placements(raw_placements: list[dict]) -> list[PlacementDict]:
     """Normalize, validate, and deduplicate placement data."""
     normalized: list[PlacementDict] = []
@@ -95,8 +94,35 @@ def normalize_placements(raw_placements: list[dict]) -> list[PlacementDict]:
     return normalized
 
 
+def _points_from_legacy_room(raw: dict) -> list[RoomPointDict]:
+    """Convert an old rectangle room definition into polygon points."""
+    x = clamp_coordinate(float(raw["x"]))
+    y = clamp_coordinate(float(raw["y"]))
+    width = max(0.05, min(1.0 - x, float(raw["width"])))
+    height = max(0.05, min(1.0 - y, float(raw["height"])))
+    return [
+        RoomPointDict(x=x, y=y),
+        RoomPointDict(x=x + width, y=y),
+        RoomPointDict(x=x + width, y=y + height),
+        RoomPointDict(x=x, y=y + height),
+    ]
+
+
+def normalize_room_points(raw_points: list[dict]) -> list[RoomPointDict]:
+    """Normalize room polygon points."""
+    if len(raw_points) < 3:
+        raise ValueError("Rooms need at least 3 points")
+    return [
+        RoomPointDict(
+            x=clamp_coordinate(float(raw["x"])),
+            y=clamp_coordinate(float(raw["y"])),
+        )
+        for raw in raw_points
+    ]
+
+
 def normalize_rooms(raw_rooms: list[dict]) -> list[RoomDict]:
-    """Normalize, validate, and deduplicate room rectangles."""
+    """Normalize, validate, and deduplicate room polygons."""
     normalized: list[RoomDict] = []
     seen: set[str] = set()
 
@@ -109,21 +135,19 @@ def normalize_rooms(raw_rooms: list[dict]) -> list[RoomDict]:
         seen.add(room_id)
 
         name = str(raw.get("name", f"Room {index + 1}")).strip() or f"Room {index + 1}"
-        x = clamp_coordinate(float(raw["x"]))
-        y = clamp_coordinate(float(raw["y"]))
-        width = clamp_room_size(float(raw["width"]))
-        height = clamp_room_size(float(raw["height"]))
-        width = min(width, 1.0 - x)
-        height = min(height, 1.0 - y)
+        points_raw = raw.get("points")
+        if isinstance(points_raw, list):
+            points = normalize_room_points(points_raw)
+        elif all(key in raw for key in ("x", "y", "width", "height")):
+            points = _points_from_legacy_room(raw)
+        else:
+            raise ValueError("Room points are required")
 
         normalized.append(
             RoomDict(
                 id=room_id,
                 name=name,
-                x=x,
-                y=y,
-                width=width,
-                height=height,
+                points=points,
             )
         )
 

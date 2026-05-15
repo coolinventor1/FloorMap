@@ -1,46 +1,109 @@
-import type { FloorMapPlacement, FloorMapRoom } from "./types";
+import type { FloorMapPlacement, FloorMapPoint, FloorMapRoom } from "./types";
 
-export const MIN_ROOM_SIZE = 0.05;
+export const MIN_ROOM_POINTS = 3;
 
-export function clampRoomSize(value: number): number {
-  return Math.max(MIN_ROOM_SIZE, Math.min(1, value));
+function clampCoordinate(value: number): number {
+  return Math.max(0, Math.min(1, value));
+}
+
+export function clampRoomPoint(point: FloorMapPoint): FloorMapPoint {
+  return {
+    x: clampCoordinate(point.x),
+    y: clampCoordinate(point.y),
+  };
+}
+
+export function roomBounds(room: FloorMapRoom): {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+} {
+  const xs = room.points.map((point) => point.x);
+  const ys = room.points.map((point) => point.y);
+  const minX = Math.min(...xs);
+  const minY = Math.min(...ys);
+  const maxX = Math.max(...xs);
+  const maxY = Math.max(...ys);
+  return {
+    x: minX,
+    y: minY,
+    width: Math.max(0.001, maxX - minX),
+    height: Math.max(0.001, maxY - minY),
+  };
+}
+
+export function roomStyle(room: FloorMapRoom): string {
+  const bounds = roomBounds(room);
+  return `left:${bounds.x * 100}%; top:${bounds.y * 100}%; width:${bounds.width * 100}%; height:${bounds.height * 100}%;`;
+}
+
+export function roomRelativePoints(room: FloorMapRoom): FloorMapPoint[] {
+  const bounds = roomBounds(room);
+  return room.points.map((point) => ({
+    x: ((point.x - bounds.x) / bounds.width) * 100,
+    y: ((point.y - bounds.y) / bounds.height) * 100,
+  }));
+}
+
+export function roomPolygonPoints(room: FloorMapRoom): string {
+  return roomRelativePoints(room)
+    .map((point) => `${point.x.toFixed(2)},${point.y.toFixed(2)}`)
+    .join(" ");
+}
+
+export function roomClipPath(room: FloorMapRoom): string {
+  return `polygon(${roomRelativePoints(room)
+    .map((point) => `${point.x.toFixed(2)}% ${point.y.toFixed(2)}%`)
+    .join(", ")})`;
 }
 
 export function roomContainsPoint(room: FloorMapRoom, x: number, y: number): boolean {
-  return x >= room.x && x <= room.x + room.width && y >= room.y && y <= room.y + room.height;
+  let inside = false;
+  for (let index = 0, previous = room.points.length - 1; index < room.points.length; previous = index++) {
+    const currentPoint = room.points[index];
+    const previousPoint = room.points[previous];
+    const intersects =
+      currentPoint.y > y !== previousPoint.y > y &&
+      x <
+        ((previousPoint.x - currentPoint.x) * (y - currentPoint.y)) /
+          ((previousPoint.y - currentPoint.y) || Number.EPSILON) +
+          currentPoint.x;
+    if (intersects) {
+      inside = !inside;
+    }
+  }
+  return inside;
 }
 
 export function roomContainsPlacement(room: FloorMapRoom, placement: FloorMapPlacement): boolean {
   return roomContainsPoint(room, placement.x, placement.y);
 }
 
-export function clampRoomRect(room: FloorMapRoom): FloorMapRoom {
-  const x = Math.max(0, Math.min(1, room.x));
-  const y = Math.max(0, Math.min(1, room.y));
-  const width = Math.min(clampRoomSize(room.width), 1 - x);
-  const height = Math.min(clampRoomSize(room.height), 1 - y);
-  return { ...room, x, y, width, height };
+export function normalizeRoomPoints(points: FloorMapPoint[]): FloorMapPoint[] {
+  return points.map((point) => clampRoomPoint(point));
 }
 
 export function createRoomLightingBackground(
   room: FloorMapRoom,
   placements: FloorMapPlacement[]
 ): string | undefined {
+  const bounds = roomBounds(room);
   const gradients = placements
     .filter((placement) => roomContainsPlacement(room, placement))
     .map((placement) => {
-      const localX = ((placement.x - room.x) / room.width) * 100;
-      const localY = ((placement.y - room.y) / room.height) * 100;
-      const inner = Math.min(26, 12 + placement.size * 8);
-      const middle = Math.min(58, 28 + placement.size * 14);
-      const outer = Math.min(96, 56 + placement.size * 18);
-      return `radial-gradient(circle at ${localX.toFixed(2)}% ${localY.toFixed(2)}%, rgba(255, 249, 224, 0.82) 0%, rgba(255, 232, 156, 0.52) ${inner.toFixed(2)}%, rgba(255, 216, 112, 0.24) ${middle.toFixed(2)}%, rgba(255, 206, 92, 0.04) ${outer.toFixed(2)}%, rgba(255, 206, 92, 0) 100%)`;
+      const localX = ((placement.x - bounds.x) / bounds.width) * 100;
+      const localY = ((placement.y - bounds.y) / bounds.height) * 100;
+      const inner = Math.min(16, 7 + placement.size * 4);
+      const middle = Math.min(32, 15 + placement.size * 7);
+      const outer = Math.min(54, 26 + placement.size * 9);
+      return `radial-gradient(circle at ${localX.toFixed(2)}% ${localY.toFixed(2)}%, rgba(255, 250, 232, 0.88) 0%, rgba(255, 234, 168, 0.46) ${inner.toFixed(2)}%, rgba(255, 216, 112, 0.18) ${middle.toFixed(2)}%, rgba(255, 206, 92, 0.03) ${outer.toFixed(2)}%, rgba(255, 206, 92, 0) 100%)`;
     });
 
   if (!gradients.length) {
     return undefined;
   }
 
-  gradients.push("linear-gradient(180deg, rgba(255, 240, 190, 0.10), rgba(255, 240, 190, 0.18))");
+  gradients.push("linear-gradient(180deg, rgba(255, 244, 210, 0.05), rgba(255, 244, 210, 0.08))");
   return gradients.join(", ");
 }

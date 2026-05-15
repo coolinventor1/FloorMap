@@ -14,13 +14,15 @@ export interface FloorMapPlacement {
   size: number;
 }
 
+export interface FloorMapPoint {
+  x: number;
+  y: number;
+}
+
 export interface FloorMapRoom {
   id: string;
   name: string;
-  x: number;
-  y: number;
-  width: number;
-  height: number;
+  points: FloorMapPoint[];
 }
 
 export interface FloorMapLayout {

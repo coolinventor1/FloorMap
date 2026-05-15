@@ -4,12 +4,21 @@ import type { PropertyValues, TemplateResult } from "lit";
 import { resolveEntityAction } from "./lib/entity-actions";
 import { entityIcon, entityLabel, entityUsesLampPalette } from "./lib/entity-display";
 import { clampCoordinate, MAX_SCALE, MIN_SCALE, zoomAroundPoint } from "./lib/floormap-math";
-import { clampRoomRect, createRoomLightingBackground, MIN_ROOM_SIZE, roomContainsPlacement } from "./lib/rooms";
+import {
+  clampRoomPoint,
+  createRoomLightingBackground,
+  MIN_ROOM_POINTS,
+  roomClipPath,
+  roomContainsPlacement,
+  roomPolygonPoints,
+  roomStyle,
+} from "./lib/rooms";
 import type {
   EntityIndexEntry,
   FloorMapCardConfig,
   FloorMapLayout,
   FloorMapPlacement,
+  FloorMapPoint,
   FloorMapRoom,
   HassEntity,
   HomeAssistant,
@@ -157,15 +166,22 @@ const baseStyles = css`
   }
 
   .rooms,
+  .room-points-layer,
   .markers {
     position: absolute;
     inset: 0;
+  }
+
+  .rooms,
+  .room-points-layer {
+    pointer-events: none;
   }
 
   .room {
     position: absolute;
     overflow: hidden;
     border-radius: 12px;
+    pointer-events: none;
   }
 
   .room-lighting {
@@ -175,13 +191,20 @@ const baseStyles = css`
     opacity: 0.96;
   }
 
-  .room-box {
+  .room-outline-svg {
     position: absolute;
     inset: 0;
-    border: 1.5px solid rgba(59, 130, 246, 0.42);
-    border-radius: 12px;
-    background: rgba(59, 130, 246, 0.06);
-    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.24);
+    width: 100%;
+    height: 100%;
+    overflow: visible;
+    pointer-events: none;
+  }
+
+  .room-outline {
+    fill: rgba(59, 130, 246, 0.06);
+    stroke: rgba(59, 130, 246, 0.46);
+    stroke-width: 1.6;
+    vector-effect: non-scaling-stroke;
   }
 
   .room-label {
@@ -203,9 +226,48 @@ const baseStyles = css`
     pointer-events: none;
   }
 
-  .room.is-lit .room-box {
-    border-color: rgba(245, 184, 73, 0.5);
-    background: rgba(255, 244, 216, 0.08);
+  .room.is-lit .room-outline {
+    fill: rgba(255, 244, 216, 0.07);
+    stroke: rgba(245, 184, 73, 0.52);
+  }
+
+  .room-point-handle {
+    position: absolute;
+    width: 0.9rem;
+    height: 0.9rem;
+    border-radius: 50%;
+    border: 1px solid rgba(255, 255, 255, 0.96);
+    background: rgba(37, 99, 235, 0.92);
+    box-shadow: 0 1px 6px rgba(15, 23, 42, 0.22);
+    transform: translate(-50%, -50%);
+    cursor: grab;
+    touch-action: none;
+    pointer-events: auto;
+  }
+
+  .room-point-handle:active {
+    cursor: grabbing;
+  }
+
+  .room-point-handle.is-draft {
+    background: rgba(245, 184, 73, 0.96);
+  }
+
+  .room-draft-svg {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    overflow: visible;
+    pointer-events: none;
+  }
+
+  .room-draft-shape {
+    fill: rgba(59, 130, 246, 0.08);
+    stroke: rgba(37, 99, 235, 0.76);
+    stroke-width: 1.8;
+    stroke-dasharray: 4 4;
+    vector-effect: non-scaling-stroke;
   }
 
   .marker {
@@ -415,8 +477,8 @@ function generateRoomId(): string {
   return `room-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
-function roomStyle(room: FloorMapRoom): string {
-  return `left:${room.x * 100}%; top:${room.y * 100}%; width:${room.width * 100}%; height:${room.height * 100}%;`;
+function roomPointHandleStyle(point: FloorMapPoint): string {
+  return `left:${point.x * 100}%; top:${point.y * 100}%;`;
 }
 
 function activeLightPlacementsForRoom(
@@ -1011,8 +1073,13 @@ class FloorMapCard extends FloorMapBaseElement {
     const background = createRoomLightingBackground(room, activeLights);
     return html`
       <div class="room ${background ? "is-lit" : ""}" style=${roomStyle(room)}>
-        <div class="room-lighting" style=${background ? `background:${background};` : ""}></div>
-        <div class="room-box"></div>
+        <div
+          class="room-lighting"
+          style=${`${background ? `background:${background};` : ""} clip-path:${roomClipPath(room)};`}
+        ></div>
+        <svg class="room-outline-svg" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
+          <polygon class="room-outline" points=${roomPolygonPoints(room)}></polygon>
+        </svg>
         <div class="room-label">${room.name}</div>
       </div>
     `;
@@ -1369,7 +1436,7 @@ class FloorMapPanel extends FloorMapBaseElement {
     _pendingEntityId: { state: true },
     _pendingRoomName: { state: true },
     _roomName: { state: true },
-    _roomDraftPreview: { state: true },
+    _pendingRoomPoints: { state: true },
     _saving: { state: true },
     _uploading: { state: true },
     _dirty: { state: true },
@@ -1517,36 +1584,6 @@ class FloorMapPanel extends FloorMapBaseElement {
         touch-action: none;
       }
 
-      .room-box.is-editable {
-        pointer-events: auto;
-        cursor: grab;
-        border-style: dashed;
-      }
-
-      .room-box.is-editable:active {
-        cursor: grabbing;
-      }
-
-      .room-box.is-preview {
-        border-style: dashed;
-        border-color: rgba(37, 99, 235, 0.72);
-        background: rgba(59, 130, 246, 0.12);
-      }
-
-      .room-resize-handle {
-        position: absolute;
-        right: 0.35rem;
-        bottom: 0.35rem;
-        width: 0.9rem;
-        height: 0.9rem;
-        border-radius: 50%;
-        border: 1px solid rgba(255, 255, 255, 0.92);
-        background: rgba(37, 99, 235, 0.9);
-        box-shadow: 0 1px 5px rgba(15, 23, 42, 0.24);
-        pointer-events: auto;
-        cursor: nwse-resize;
-      }
-
       .room-input {
         width: 100%;
       }
@@ -1581,8 +1618,8 @@ class FloorMapPanel extends FloorMapBaseElement {
   private _draftRooms: FloorMapRoom[] = [];
   private _pendingEntityId: string | null = null;
   private _pendingRoomName: string | null = null;
+  private _pendingRoomPoints: FloorMapPoint[] = [];
   private _roomName = "";
-  private _roomDraftPreview: FloorMapRoom | null = null;
   private _saving = false;
   private _uploading = false;
   private _dirty = false;
@@ -1602,24 +1639,10 @@ class FloorMapPanel extends FloorMapBaseElement {
         entityId: string;
       }
     | {
-        mode: "room-draw";
-        pointerId: number;
-        name: string;
-        startPoint: { x: number; y: number };
-      }
-    | {
-        mode: "room-move";
+        mode: "room-point";
         pointerId: number;
         roomId: string;
-        startPoint: { x: number; y: number };
-        room: FloorMapRoom;
-      }
-    | {
-        mode: "room-resize";
-        pointerId: number;
-        roomId: string;
-        startPoint: { x: number; y: number };
-        room: FloorMapRoom;
+        pointIndex: number;
       }
     | undefined;
 
@@ -1629,11 +1652,14 @@ class FloorMapPanel extends FloorMapBaseElement {
 
   protected override async _afterLayoutLoad(layout: FloorMapLayout): Promise<void> {
     this._draftPlacements = layout.placements.map((placement) => ({ ...placement }));
-    this._draftRooms = layout.rooms.map((room) => ({ ...room }));
+    this._draftRooms = layout.rooms.map((room) => ({
+      ...room,
+      points: room.points.map((point) => ({ ...point })),
+    }));
     this._dirty = false;
     this._pendingEntityId = null;
     this._pendingRoomName = null;
-    this._roomDraftPreview = null;
+    this._pendingRoomPoints = [];
     this._resetView();
   }
 
@@ -1680,7 +1706,7 @@ class FloorMapPanel extends FloorMapBaseElement {
 
           <section class="section">
             <h3>Rooms</h3>
-            <div class="muted">Draw room boxes so FloorMap can clip light spread inside each room.</div>
+            <div class="muted">Click points around a room, then press Done to save the boundary.</div>
             <input
               class="room-input"
               type="text"
@@ -1692,6 +1718,12 @@ class FloorMapPanel extends FloorMapBaseElement {
               <button @click=${this._startRoomDraw}>
                 ${this._pendingRoomName ? "Drawing room…" : "Draw room"}
               </button>
+              ${this._pendingRoomName
+                ? html`<button @click=${this._undoPendingRoomPoint} ?disabled=${!this._pendingRoomPoints.length}>Undo point</button>`
+                : nothing}
+              ${this._pendingRoomName
+                ? html`<button @click=${this._finishRoomDraw} ?disabled=${this._pendingRoomPoints.length < MIN_ROOM_POINTS}>Done</button>`
+                : nothing}
               ${this._pendingRoomName
                 ? html`<button @click=${this._cancelRoomDraw}>Cancel</button>`
                 : nothing}
@@ -1723,8 +1755,10 @@ class FloorMapPanel extends FloorMapBaseElement {
             ${this._pendingRoomName
               ? html`
                   <span class="status-banner">
-                    Drag on the floor plan to draw ${this._pendingRoomName}.
+                    Click points for ${this._pendingRoomName}, then press Done.
                   </span>
+                  <button @click=${this._undoPendingRoomPoint} ?disabled=${!this._pendingRoomPoints.length}>Undo point</button>
+                  <button @click=${this._finishRoomDraw} ?disabled=${this._pendingRoomPoints.length < MIN_ROOM_POINTS}>Done</button>
                   <button @click=${this._cancelRoomDraw}>Cancel</button>
                 `
               : nothing}
@@ -1787,7 +1821,17 @@ class FloorMapPanel extends FloorMapBaseElement {
                 <img class="map-image" src=${this._imageUrl} alt="Floor plan" />
                 <div class="rooms">
                   ${this._draftRooms.map((room) => this._renderEditorRoom(room))}
-                  ${this._roomDraftPreview ? this._renderEditorRoom(this._roomDraftPreview, true) : nothing}
+                  ${this._pendingRoomPoints.length >= MIN_ROOM_POINTS ? this._renderDraftRoom() : nothing}
+                </div>
+                <div class="room-points-layer">
+                  ${this._draftRooms.map((room) => this._renderRoomPointHandles(room))}
+                  ${this._pendingRoomPoints.map(
+                    (point, index) => html`<div
+                      class="room-point-handle is-draft"
+                      style=${roomPointHandleStyle(point)}
+                      title=${`Draft point ${index + 1}`}
+                    ></div>`
+                  )}
                 </div>
                 <div class="markers">
                   ${this._draftPlacements.map((placement) => this._renderEditorMarker(placement))}
@@ -1807,7 +1851,7 @@ class FloorMapPanel extends FloorMapBaseElement {
           <div class="room-meta">
             <div class="room-name">${room.name}</div>
             <div class="room-details">
-              ${Math.round(room.width * 100)}% x ${Math.round(room.height * 100)}%
+              ${room.points.length} points
             </div>
           </div>
         </div>
@@ -1918,19 +1962,37 @@ class FloorMapPanel extends FloorMapBaseElement {
 
     return html`
       <div class="room ${background ? "is-lit" : ""}" style=${roomStyle(room)}>
-        <div class="room-lighting" style=${background ? `background:${background};` : ""}></div>
         <div
-          class=${`room-box ${preview ? "is-preview" : "is-editable"}`}
-          data-room-id=${room.id}
-          title=${room.name}
-          aria-label=${room.name}
+          class="room-lighting"
+          style=${`${background ? `background:${background};` : ""} clip-path:${roomClipPath(room)};`}
         ></div>
+        <svg class="room-outline-svg" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
+          <polygon class=${preview ? "room-draft-shape" : "room-outline"} points=${roomPolygonPoints(room)}></polygon>
+        </svg>
         <div class="room-label">${room.name}</div>
-        ${preview
-          ? nothing
-          : html`<div class="room-resize-handle" data-room-resize-id=${room.id} title="Resize ${room.name}"></div>`}
       </div>
     `;
+  }
+
+  private _renderRoomPointHandles(room: FloorMapRoom): TemplateResult[] {
+    return room.points.map(
+      (point, index) => html`<div
+        class="room-point-handle"
+        data-room-id=${room.id}
+        data-room-point-index=${String(index)}
+        style=${roomPointHandleStyle(point)}
+        title=${`${room.name} point ${index + 1}`}
+      ></div>`
+    );
+  }
+
+  private _renderDraftRoom(): TemplateResult {
+    const draftRoom: FloorMapRoom = {
+      id: "draft-room",
+      name: this._pendingRoomName ?? DEFAULT_ROOM_NAME,
+      points: this._pendingRoomPoints,
+    };
+    return this._renderEditorRoom(draftRoom, true);
   }
 
   private async _loadEntityIndex(): Promise<void> {
@@ -1989,7 +2051,7 @@ class FloorMapPanel extends FloorMapBaseElement {
 
   private _startPlacement(entityId: string): void {
     this._pendingRoomName = null;
-    this._roomDraftPreview = null;
+    this._pendingRoomPoints = [];
     this._pendingEntityId = entityId;
   }
 
@@ -2055,12 +2117,34 @@ class FloorMapPanel extends FloorMapBaseElement {
   private _startRoomDraw = (): void => {
     this._pendingEntityId = null;
     this._pendingRoomName = this._roomName.trim() || DEFAULT_ROOM_NAME;
-    this._roomDraftPreview = null;
+    this._pendingRoomPoints = [];
   };
 
   private _cancelRoomDraw = (): void => {
     this._pendingRoomName = null;
-    this._roomDraftPreview = null;
+    this._pendingRoomPoints = [];
+  };
+
+  private _undoPendingRoomPoint = (): void => {
+    this._pendingRoomPoints = this._pendingRoomPoints.slice(0, -1);
+  };
+
+  private _finishRoomDraw = (): void => {
+    if (!this._pendingRoomName || this._pendingRoomPoints.length < MIN_ROOM_POINTS) {
+      return;
+    }
+
+    this._draftRooms = [
+      ...this._draftRooms,
+      {
+        id: generateRoomId(),
+        name: this._pendingRoomName,
+        points: this._pendingRoomPoints,
+      },
+    ];
+    this._dirty = true;
+    this._pendingRoomName = null;
+    this._pendingRoomPoints = [];
   };
 
   private async _onUploadFloorplan(event: Event): Promise<void> {
@@ -2115,63 +2199,27 @@ class FloorMapPanel extends FloorMapBaseElement {
   private _onEditorPointerDown(event: PointerEvent): void {
     const target = event.target as HTMLElement;
     const marker = target.closest<HTMLElement>(".marker-chip");
-    const roomResize = target.closest<HTMLElement>(".room-resize-handle");
-    const roomBox = target.closest<HTMLElement>(".room-box.is-editable");
+    const roomPointHandle = target.closest<HTMLElement>(".room-point-handle");
     const surface = this._mapSurface();
     if (!surface) {
       return;
     }
 
-    const point = this._normalizedPointFromClient(event.clientX, event.clientY);
-
-    if (this._pendingRoomName && point) {
-      this._panState = {
-        mode: "room-draw",
-        pointerId: event.pointerId,
-        name: this._pendingRoomName,
-        startPoint: point,
-      };
-      this._roomDraftPreview = clampRoomRect({
-        id: "draft-room",
-        name: this._pendingRoomName,
-        x: point.x,
-        y: point.y,
-        width: MIN_ROOM_SIZE,
-        height: MIN_ROOM_SIZE,
-      });
-      event.preventDefault();
-      surface.setPointerCapture(event.pointerId);
+    if (this._pendingRoomName) {
       return;
     }
 
-    if (!this._pendingEntityId && roomResize && point) {
-      const room = this._draftRooms.find((entry) => entry.id === roomResize.dataset.roomResizeId);
-      if (!room) {
+    if (!this._pendingEntityId && roomPointHandle) {
+      const roomId = roomPointHandle.dataset.roomId;
+      const pointIndex = Number(roomPointHandle.dataset.roomPointIndex);
+      if (!roomId || !Number.isInteger(pointIndex)) {
         return;
       }
       this._panState = {
-        mode: "room-resize",
+        mode: "room-point",
         pointerId: event.pointerId,
-        roomId: room.id,
-        startPoint: point,
-        room: { ...room },
-      };
-      event.preventDefault();
-      surface.setPointerCapture(event.pointerId);
-      return;
-    }
-
-    if (!this._pendingEntityId && roomBox && point) {
-      const room = this._draftRooms.find((entry) => entry.id === roomBox.dataset.roomId);
-      if (!room) {
-        return;
-      }
-      this._panState = {
-        mode: "room-move",
-        pointerId: event.pointerId,
-        roomId: room.id,
-        startPoint: point,
-        room: { ...room },
+        roomId,
+        pointIndex,
       };
       event.preventDefault();
       surface.setPointerCapture(event.pointerId);
@@ -2232,43 +2280,16 @@ class FloorMapPanel extends FloorMapBaseElement {
       return;
     }
 
-    if (activeState.mode === "room-draw") {
-      this._roomDraftPreview = clampRoomRect({
-        id: "draft-room",
-        name: activeState.name,
-        x: Math.min(activeState.startPoint.x, point.x),
-        y: Math.min(activeState.startPoint.y, point.y),
-        width: Math.max(MIN_ROOM_SIZE, Math.abs(point.x - activeState.startPoint.x)),
-        height: Math.max(MIN_ROOM_SIZE, Math.abs(point.y - activeState.startPoint.y)),
-      });
-      return;
-    }
-
-    if (activeState.mode === "room-move") {
-      const deltaX = point.x - activeState.startPoint.x;
-      const deltaY = point.y - activeState.startPoint.y;
-      const nextRoom = clampRoomRect({
-        ...activeState.room,
-        x: Math.max(0, Math.min(1 - activeState.room.width, activeState.room.x + deltaX)),
-        y: Math.max(0, Math.min(1 - activeState.room.height, activeState.room.y + deltaY)),
-      });
+    if (activeState.mode === "room-point") {
       this._draftRooms = this._draftRooms.map((room) =>
-        room.id === activeState.roomId ? nextRoom : room
-      );
-      this._dirty = true;
-      return;
-    }
-
-    if (activeState.mode === "room-resize") {
-      const deltaX = point.x - activeState.startPoint.x;
-      const deltaY = point.y - activeState.startPoint.y;
-      const nextRoom = clampRoomRect({
-        ...activeState.room,
-        width: activeState.room.width + deltaX,
-        height: activeState.room.height + deltaY,
-      });
-      this._draftRooms = this._draftRooms.map((room) =>
-        room.id === activeState.roomId ? nextRoom : room
+        room.id === activeState.roomId
+          ? {
+              ...room,
+              points: room.points.map((roomPoint, index) =>
+                index === activeState.pointIndex ? clampRoomPoint(point) : roomPoint
+              ),
+            }
+          : room
       );
       this._dirty = true;
     }
@@ -2279,20 +2300,6 @@ class FloorMapPanel extends FloorMapBaseElement {
       return;
     }
 
-    if (this._panState.mode === "room-draw" && this._roomDraftPreview) {
-      this._draftRooms = [
-        ...this._draftRooms,
-        {
-          ...this._roomDraftPreview,
-          id: generateRoomId(),
-          name: this._pendingRoomName ?? this._roomDraftPreview.name,
-        },
-      ];
-      this._dirty = true;
-      this._pendingRoomName = null;
-      this._roomDraftPreview = null;
-    }
-
     const surface = this._mapSurface();
     surface?.releasePointerCapture(event.pointerId);
     this._isPanning = false;
@@ -2300,11 +2307,8 @@ class FloorMapPanel extends FloorMapBaseElement {
   }
 
   private _onEditorMapClick(event: MouseEvent): void {
-    if (!this._pendingEntityId || !this._layout?.image || this._pendingRoomName) {
-      return;
-    }
     const target = event.target as HTMLElement;
-    if (target.closest(".marker-chip") || target.closest(".room-resize-handle")) {
+    if (target.closest(".marker-chip") || target.closest(".room-point-handle")) {
       return;
     }
 
@@ -2312,6 +2316,16 @@ class FloorMapPanel extends FloorMapBaseElement {
     if (!point) {
       return;
     }
+
+    if (this._pendingRoomName) {
+      this._pendingRoomPoints = [...this._pendingRoomPoints, clampRoomPoint(point)];
+      return;
+    }
+
+    if (!this._pendingEntityId || !this._layout?.image) {
+      return;
+    }
+
     this._draftPlacements = [
       ...this._draftPlacements,
       {

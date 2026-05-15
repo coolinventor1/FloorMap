@@ -80,10 +80,12 @@ async def websocket_get_layout(
             {
                 vol.Required("id"): str,
                 vol.Required("name"): str,
-                vol.Required("x"): vol.Coerce(float),
-                vol.Required("y"): vol.Coerce(float),
-                vol.Required("width"): vol.Coerce(float),
-                vol.Required("height"): vol.Coerce(float),
+                vol.Required("points"): [
+                    {
+                        vol.Required("x"): vol.Coerce(float),
+                        vol.Required("y"): vol.Coerce(float),
+                    }
+                ],
             }
         ],
     }

@@ -45,7 +45,7 @@ class NormalizePlacementsTest(unittest.TestCase):
 
 
 class NormalizeRoomsTest(unittest.TestCase):
-    def test_normalize_rooms_clamps_values(self) -> None:
+    def test_normalize_rooms_supports_legacy_rectangles(self) -> None:
         rooms = util.normalize_rooms(
             [
                 {
@@ -58,10 +58,9 @@ class NormalizeRoomsTest(unittest.TestCase):
                 }
             ]
         )
-        self.assertEqual(rooms[0]["x"], 0.9)
-        self.assertEqual(rooms[0]["y"], 0.0)
-        self.assertAlmostEqual(rooms[0]["width"], 0.1)
-        self.assertAlmostEqual(rooms[0]["height"], 1.0)
+        self.assertEqual(len(rooms[0]["points"]), 4)
+        self.assertAlmostEqual(rooms[0]["points"][0]["x"], 0.9)
+        self.assertAlmostEqual(rooms[0]["points"][0]["y"], 0.0)
 
     def test_normalize_rooms_rejects_duplicates(self) -> None:
         with self.assertRaises(ValueError):
@@ -69,6 +68,18 @@ class NormalizeRoomsTest(unittest.TestCase):
                 [
                     {"id": "living", "name": "Living", "x": 0.1, "y": 0.2, "width": 0.2, "height": 0.2},
                     {"id": "living", "name": "Living 2", "x": 0.3, "y": 0.4, "width": 0.2, "height": 0.2},
+                ]
+            )
+
+    def test_normalize_rooms_requires_three_points(self) -> None:
+        with self.assertRaises(ValueError):
+            util.normalize_rooms(
+                [
+                    {
+                        "id": "living",
+                        "name": "Living",
+                        "points": [{"x": 0.1, "y": 0.1}, {"x": 0.2, "y": 0.2}],
+                    }
                 ]
             )
 

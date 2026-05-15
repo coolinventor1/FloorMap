@@ -57,7 +57,13 @@ class FloorMapLayoutManager:
         return {
             "image": dict(self._layout["image"]) if self._layout["image"] else None,
             "placements": [dict(placement) for placement in self._layout["placements"]],
-            "rooms": [dict(room) for room in self._layout["rooms"]],
+            "rooms": [
+                {
+                    **dict(room),
+                    "points": [dict(point) for point in room["points"]],
+                }
+                for room in self._layout["rooms"]
+            ],
         }
 
     async def async_save_layout(self, placements: list[dict], rooms: list[dict]) -> LayoutDict:
