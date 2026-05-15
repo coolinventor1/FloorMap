@@ -26,16 +26,28 @@ class PlacementDict(TypedDict):
     size: float
 
 
+class RoomDict(TypedDict):
+    """Stored room rectangle."""
+
+    id: str
+    name: str
+    x: float
+    y: float
+    width: float
+    height: float
+
+
 class LayoutDict(TypedDict):
     """Stored layout payload."""
 
     image: ImageMetaDict | None
     placements: list[PlacementDict]
+    rooms: list[RoomDict]
 
 
 def default_layout() -> LayoutDict:
     """Return the default empty layout."""
-    return {"image": None, "placements": []}
+    return {"image": None, "placements": [], "rooms": []}
 
 
 def utc_now_iso() -> str:
@@ -51,6 +63,11 @@ def clamp_coordinate(value: float) -> float:
 def clamp_marker_size(value: float) -> float:
     """Clamp marker size to a reasonable visible range."""
     return max(0.6, min(2.4, float(value)))
+
+
+def clamp_room_size(value: float) -> float:
+    """Clamp a room dimension to a reasonable visible range."""
+    return max(0.05, min(1.0, float(value)))
 
 
 def normalize_placements(raw_placements: list[dict]) -> list[PlacementDict]:
@@ -72,6 +89,41 @@ def normalize_placements(raw_placements: list[dict]) -> list[PlacementDict]:
                 y=clamp_coordinate(float(raw["y"])),
                 show_state=bool(raw.get("show_state", False)),
                 size=clamp_marker_size(float(raw.get("size", 1.0))),
+            )
+        )
+
+    return normalized
+
+
+def normalize_rooms(raw_rooms: list[dict]) -> list[RoomDict]:
+    """Normalize, validate, and deduplicate room rectangles."""
+    normalized: list[RoomDict] = []
+    seen: set[str] = set()
+
+    for index, raw in enumerate(raw_rooms):
+        room_id = str(raw.get("id", "")).strip()
+        if not room_id:
+            raise ValueError("Room id is required")
+        if room_id in seen:
+            raise ValueError(f"Duplicate room id: {room_id}")
+        seen.add(room_id)
+
+        name = str(raw.get("name", f"Room {index + 1}")).strip() or f"Room {index + 1}"
+        x = clamp_coordinate(float(raw["x"]))
+        y = clamp_coordinate(float(raw["y"]))
+        width = clamp_room_size(float(raw["width"]))
+        height = clamp_room_size(float(raw["height"]))
+        width = min(width, 1.0 - x)
+        height = min(height, 1.0 - y)
+
+        normalized.append(
+            RoomDict(
+                id=room_id,
+                name=name,
+                x=x,
+                y=y,
+                width=width,
+                height=height,
             )
         )
 

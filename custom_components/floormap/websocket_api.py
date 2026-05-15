@@ -76,6 +76,16 @@ async def websocket_get_layout(
                 vol.Optional("size", default=1.0): vol.Coerce(float),
             }
         ],
+        vol.Optional("rooms", default=[]): [
+            {
+                vol.Required("id"): str,
+                vol.Required("name"): str,
+                vol.Required("x"): vol.Coerce(float),
+                vol.Required("y"): vol.Coerce(float),
+                vol.Required("width"): vol.Coerce(float),
+                vol.Required("height"): vol.Coerce(float),
+            }
+        ],
     }
 )
 @websocket_api.async_response
@@ -89,7 +99,7 @@ async def websocket_save_layout(
         return
 
     try:
-        layout = await manager.async_save_layout(msg["placements"])
+        layout = await manager.async_save_layout(msg["placements"], msg["rooms"])
     except ValueError as err:
         connection.send_error(msg["id"], "invalid_format", str(err))
         return

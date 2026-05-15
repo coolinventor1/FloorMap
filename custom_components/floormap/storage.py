@@ -9,7 +9,14 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.storage import Store
 
 from .const import ALLOWED_IMAGE_TYPES, DOMAIN, EVENT_LAYOUT_UPDATED, FLOORPLAN_DIRECTORY, STORAGE_KEY, STORAGE_VERSION
-from .util import LayoutDict, default_layout, image_dimensions_from_bytes, normalize_placements, utc_now_iso
+from .util import (
+    LayoutDict,
+    default_layout,
+    image_dimensions_from_bytes,
+    normalize_placements,
+    normalize_rooms,
+    utc_now_iso,
+)
 
 
 @dataclass
@@ -33,10 +40,16 @@ class FloorMapLayoutManager:
         except (TypeError, ValueError):
             placements = []
 
+        try:
+            rooms = normalize_rooms(list(loaded.get("rooms", [])))
+        except (TypeError, ValueError):
+            rooms = []
+
         image = loaded.get("image")
         self._layout = {
             "image": image if isinstance(image, dict) else None,
             "placements": placements,
+            "rooms": rooms,
         }
 
     def get_layout(self) -> LayoutDict:
@@ -44,11 +57,13 @@ class FloorMapLayoutManager:
         return {
             "image": dict(self._layout["image"]) if self._layout["image"] else None,
             "placements": [dict(placement) for placement in self._layout["placements"]],
+            "rooms": [dict(room) for room in self._layout["rooms"]],
         }
 
-    async def async_save_layout(self, placements: list[dict]) -> LayoutDict:
-        """Persist a full placement list."""
+    async def async_save_layout(self, placements: list[dict], rooms: list[dict]) -> LayoutDict:
+        """Persist a full layout replacement."""
         self._layout["placements"] = normalize_placements(placements)
+        self._layout["rooms"] = normalize_rooms(rooms)
         await self.store.async_save(self._layout)
         self.hass.bus.async_fire(EVENT_LAYOUT_UPDATED)
         return self.get_layout()

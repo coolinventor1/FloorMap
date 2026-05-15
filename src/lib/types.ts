@@ -14,9 +14,19 @@ export interface FloorMapPlacement {
   size: number;
 }
 
+export interface FloorMapRoom {
+  id: string;
+  name: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
 export interface FloorMapLayout {
   image: FloorMapImage | null;
   placements: FloorMapPlacement[];
+  rooms: FloorMapRoom[];
   image_url?: string | null;
   image_data_url?: string | null;
 }

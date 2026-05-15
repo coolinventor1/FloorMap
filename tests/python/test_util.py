@@ -44,6 +44,35 @@ class NormalizePlacementsTest(unittest.TestCase):
             )
 
 
+class NormalizeRoomsTest(unittest.TestCase):
+    def test_normalize_rooms_clamps_values(self) -> None:
+        rooms = util.normalize_rooms(
+            [
+                {
+                    "id": "living",
+                    "name": "Living Room",
+                    "x": 0.9,
+                    "y": -0.2,
+                    "width": 0.5,
+                    "height": 1.4,
+                }
+            ]
+        )
+        self.assertEqual(rooms[0]["x"], 0.9)
+        self.assertEqual(rooms[0]["y"], 0.0)
+        self.assertAlmostEqual(rooms[0]["width"], 0.1)
+        self.assertAlmostEqual(rooms[0]["height"], 1.0)
+
+    def test_normalize_rooms_rejects_duplicates(self) -> None:
+        with self.assertRaises(ValueError):
+            util.normalize_rooms(
+                [
+                    {"id": "living", "name": "Living", "x": 0.1, "y": 0.2, "width": 0.2, "height": 0.2},
+                    {"id": "living", "name": "Living 2", "x": 0.3, "y": 0.4, "width": 0.2, "height": 0.2},
+                ]
+            )
+
+
 class ImageDimensionParsingTest(unittest.TestCase):
     def test_png_dimensions_are_detected(self) -> None:
         png = (
@@ -65,4 +94,3 @@ class ImageDimensionParsingTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-
