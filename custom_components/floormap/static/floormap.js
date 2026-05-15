@@ -786,11 +786,7 @@ var baseStyles = i`
     overflow: hidden;
     border-radius: 8px;
     border: 1px solid var(--floormap-outline);
-    background:
-      linear-gradient(90deg, rgba(255, 255, 255, 0.04) 1px, transparent 1px),
-      linear-gradient(rgba(255, 255, 255, 0.04) 1px, transparent 1px),
-      color-mix(in srgb, var(--floormap-surface) 80%, black 20%);
-    background-size: 24px 24px, 24px 24px, auto;
+    background: #ffffff;
     touch-action: none;
     user-select: none;
   }
@@ -815,6 +811,7 @@ var baseStyles = i`
 
   .map-stage {
     position: absolute;
+    background: #ffffff;
   }
 
   .map-image {
