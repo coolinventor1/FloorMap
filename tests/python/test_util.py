@@ -61,6 +61,8 @@ class NormalizeRoomsTest(unittest.TestCase):
         self.assertEqual(len(rooms[0]["points"]), 4)
         self.assertAlmostEqual(rooms[0]["points"][0]["x"], 0.9)
         self.assertAlmostEqual(rooms[0]["points"][0]["y"], 0.0)
+        self.assertAlmostEqual(rooms[0]["label_x"], 0.9)
+        self.assertAlmostEqual(rooms[0]["label_y"], 0.0)
 
     def test_normalize_rooms_rejects_duplicates(self) -> None:
         with self.assertRaises(ValueError):
@@ -82,6 +84,26 @@ class NormalizeRoomsTest(unittest.TestCase):
                     }
                 ]
             )
+
+    def test_normalize_rooms_clamps_saved_label_position(self) -> None:
+        rooms = util.normalize_rooms(
+            [
+                {
+                    "id": "study",
+                    "name": "Study",
+                    "points": [
+                        {"x": 0.25, "y": 0.2},
+                        {"x": 0.55, "y": 0.2},
+                        {"x": 0.55, "y": 0.45},
+                        {"x": 0.25, "y": 0.45},
+                    ],
+                    "label_x": 1.5,
+                    "label_y": -0.25,
+                }
+            ]
+        )
+        self.assertAlmostEqual(rooms[0]["label_x"], 1.0)
+        self.assertAlmostEqual(rooms[0]["label_y"], 0.0)
 
 
 class ImageDimensionParsingTest(unittest.TestCase):

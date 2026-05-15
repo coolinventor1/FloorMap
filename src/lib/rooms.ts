@@ -6,6 +6,26 @@ function clampCoordinate(value: number): number {
   return Math.max(0, Math.min(1, value));
 }
 
+function roomBoundsFromPoints(points: FloorMapPoint[]): {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+} {
+  const xs = points.map((point) => point.x);
+  const ys = points.map((point) => point.y);
+  const minX = Math.min(...xs);
+  const minY = Math.min(...ys);
+  const maxX = Math.max(...xs);
+  const maxY = Math.max(...ys);
+  return {
+    x: minX,
+    y: minY,
+    width: Math.max(0.001, maxX - minX),
+    height: Math.max(0.001, maxY - minY),
+  };
+}
+
 export function clampRoomPoint(point: FloorMapPoint): FloorMapPoint {
   return {
     x: clampCoordinate(point.x),
@@ -19,23 +39,24 @@ export function roomBounds(room: FloorMapRoom): {
   width: number;
   height: number;
 } {
-  const xs = room.points.map((point) => point.x);
-  const ys = room.points.map((point) => point.y);
-  const minX = Math.min(...xs);
-  const minY = Math.min(...ys);
-  const maxX = Math.max(...xs);
-  const maxY = Math.max(...ys);
-  return {
-    x: minX,
-    y: minY,
-    width: Math.max(0.001, maxX - minX),
-    height: Math.max(0.001, maxY - minY),
-  };
+  return roomBoundsFromPoints(room.points);
 }
 
 export function roomStyle(room: FloorMapRoom): string {
   const bounds = roomBounds(room);
   return `left:${bounds.x * 100}%; top:${bounds.y * 100}%; width:${bounds.width * 100}%; height:${bounds.height * 100}%;`;
+}
+
+export function defaultRoomLabelPosition(room: Pick<FloorMapRoom, "points">): FloorMapPoint {
+  const bounds = roomBoundsFromPoints(room.points);
+  return {
+    x: clampCoordinate(bounds.x + 0.01),
+    y: clampCoordinate(bounds.y + 0.01),
+  };
+}
+
+export function roomLabelStyle(room: Pick<FloorMapRoom, "label_x" | "label_y">): string {
+  return `left:${room.label_x * 100}%; top:${room.label_y * 100}%;`;
 }
 
 export function roomRelativePoints(room: FloorMapRoom): FloorMapPoint[] {

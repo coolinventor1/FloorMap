@@ -23,6 +23,8 @@ export interface FloorMapRoom {
   id: string;
   name: string;
   points: FloorMapPoint[];
+  label_x: number;
+  label_y: number;
 }
 
 export interface FloorMapLayout {

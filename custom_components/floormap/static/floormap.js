@@ -691,15 +691,9 @@ var MIN_ROOM_POINTS = 3;
 function clampCoordinate2(value) {
   return Math.max(0, Math.min(1, value));
 }
-function clampRoomPoint(point) {
-  return {
-    x: clampCoordinate2(point.x),
-    y: clampCoordinate2(point.y)
-  };
-}
-function roomBounds(room) {
-  const xs = room.points.map((point) => point.x);
-  const ys = room.points.map((point) => point.y);
+function roomBoundsFromPoints(points) {
+  const xs = points.map((point) => point.x);
+  const ys = points.map((point) => point.y);
   const minX = Math.min(...xs);
   const minY = Math.min(...ys);
   const maxX = Math.max(...xs);
@@ -711,9 +705,28 @@ function roomBounds(room) {
     height: Math.max(1e-3, maxY - minY)
   };
 }
+function clampRoomPoint(point) {
+  return {
+    x: clampCoordinate2(point.x),
+    y: clampCoordinate2(point.y)
+  };
+}
+function roomBounds(room) {
+  return roomBoundsFromPoints(room.points);
+}
 function roomStyle(room) {
   const bounds = roomBounds(room);
   return `left:${bounds.x * 100}%; top:${bounds.y * 100}%; width:${bounds.width * 100}%; height:${bounds.height * 100}%;`;
+}
+function defaultRoomLabelPosition(room) {
+  const bounds = roomBoundsFromPoints(room.points);
+  return {
+    x: clampCoordinate2(bounds.x + 0.01),
+    y: clampCoordinate2(bounds.y + 0.01)
+  };
+}
+function roomLabelStyle(room) {
+  return `left:${room.label_x * 100}%; top:${room.label_y * 100}%;`;
 }
 function roomRelativePoints(room) {
   const bounds = roomBounds(room);
@@ -899,6 +912,7 @@ var baseStyles = i`
   }
 
   .rooms,
+  .room-labels,
   .room-points-layer,
   .markers {
     position: absolute;
@@ -906,6 +920,7 @@ var baseStyles = i`
   }
 
   .rooms,
+  .room-labels,
   .room-points-layer {
     pointer-events: none;
   }
@@ -942,10 +957,8 @@ var baseStyles = i`
 
   .room-label {
     position: absolute;
-    left: 0.55rem;
-    top: 0.55rem;
     z-index: 1;
-    max-width: calc(100% - 1.1rem);
+    max-width: 14rem;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -957,6 +970,17 @@ var baseStyles = i`
     font-weight: 600;
     box-shadow: 0 1px 6px rgba(15, 23, 42, 0.12);
     pointer-events: none;
+    transform: translate(0, 0);
+  }
+
+  .room-label.is-editable {
+    pointer-events: auto;
+    cursor: grab;
+    touch-action: none;
+  }
+
+  .room-label.is-editable:active {
+    cursor: grabbing;
   }
 
   .room.is-lit .room-outline {
@@ -1694,6 +1718,9 @@ var FloorMapCard = class extends FloorMapBaseElement {
                 <div class="rooms">
                   ${this._layout.rooms.map((room) => this._renderCardRoom(room))}
                 </div>
+                <div class="room-labels">
+                  ${this._layout.rooms.map((room) => this._renderCardRoomLabel(room))}
+                </div>
                 <div class="markers">
                   ${this._layout.placements.map((placement) => this._renderCardMarker(placement))}
                 </div>
@@ -1717,9 +1744,11 @@ var FloorMapCard = class extends FloorMapBaseElement {
           class="room-lighting"
           style=${`${background ? `background:${background};` : ""} clip-path:${roomClipPath(room)};`}
         ></div>
-        <div class="room-label">${room.name}</div>
       </div>
     `;
+  }
+  _renderCardRoomLabel(room) {
+    return b2`<div class="room-label" style=${roomLabelStyle(room)}>${room.name}</div>`;
   }
   _renderCardMarker(placement) {
     const stateObj = this.hass?.states[placement.entity_id];
@@ -2018,12 +2047,18 @@ var FloorMapPanel = class extends FloorMapBaseElement {
       if (!this._pendingRoomName || this._pendingRoomPoints.length < MIN_ROOM_POINTS) {
         return;
       }
+      const draftRoomBase = {
+        id: generateRoomId(),
+        name: this._pendingRoomName,
+        points: this._pendingRoomPoints
+      };
+      const defaultLabel = defaultRoomLabelPosition(draftRoomBase);
       this._draftRooms = [
         ...this._draftRooms,
         {
-          id: generateRoomId(),
-          name: this._pendingRoomName,
-          points: this._pendingRoomPoints
+          ...draftRoomBase,
+          label_x: defaultLabel.x,
+          label_y: defaultLabel.y
         }
       ];
       this._dirty = true;
@@ -2371,6 +2406,9 @@ var FloorMapPanel = class extends FloorMapBaseElement {
                   ${this._draftRooms.map((room) => this._renderEditorRoom(room))}
                   ${this._pendingRoomPoints.length >= MIN_ROOM_POINTS ? this._renderDraftRoom() : A}
                 </div>
+                <div class="room-labels">
+                  ${this._draftRooms.map((room) => this._renderEditorRoomLabel(room))}
+                </div>
                 <div class="room-points-layer">
                   ${this._draftRooms.map((room) => this._renderRoomPointHandles(room))}
                   ${this._pendingRoomPoints.map(
@@ -2508,7 +2546,18 @@ var FloorMapPanel = class extends FloorMapBaseElement {
         <svg class="room-outline-svg" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
           <polygon class=${preview ? "room-draft-shape" : "room-outline"} points=${roomPolygonPoints(room)}></polygon>
         </svg>
-        <div class="room-label">${room.name}</div>
+      </div>
+    `;
+  }
+  _renderEditorRoomLabel(room) {
+    return b2`
+      <div
+        class="room-label is-editable"
+        data-room-id=${room.id}
+        style=${roomLabelStyle(room)}
+        title=${`Move ${room.name} label`}
+      >
+        ${room.name}
       </div>
     `;
   }
@@ -2524,10 +2573,13 @@ var FloorMapPanel = class extends FloorMapBaseElement {
     );
   }
   _renderDraftRoom() {
+    const defaultLabel = defaultRoomLabelPosition({ points: this._pendingRoomPoints });
     const draftRoom = {
       id: "draft-room",
       name: this._pendingRoomName ?? DEFAULT_ROOM_NAME,
-      points: this._pendingRoomPoints
+      points: this._pendingRoomPoints,
+      label_x: defaultLabel.x,
+      label_y: defaultLabel.y
     };
     return this._renderEditorRoom(draftRoom, true);
   }
@@ -2664,11 +2716,33 @@ var FloorMapPanel = class extends FloorMapBaseElement {
     const target = event.target;
     const marker = target.closest(".marker-chip");
     const roomPointHandle = target.closest(".room-point-handle");
+    const roomLabel = target.closest(".room-label.is-editable");
     const surface = this._mapSurface();
     if (!surface) {
       return;
     }
     if (this._pendingRoomName) {
+      return;
+    }
+    if (!this._pendingEntityId && roomLabel) {
+      const roomId = roomLabel.dataset.roomId;
+      const room = this._draftRooms.find((entry) => entry.id === roomId);
+      const point = this._normalizedPointFromClient(event.clientX, event.clientY);
+      if (!roomId || !room || !point) {
+        return;
+      }
+      this._panState = {
+        mode: "room-label",
+        pointerId: event.pointerId,
+        roomId,
+        startPoint: point,
+        labelStart: {
+          x: room.label_x,
+          y: room.label_y
+        }
+      };
+      event.preventDefault();
+      surface.setPointerCapture(event.pointerId);
       return;
     }
     if (!this._pendingEntityId && roomPointHandle) {
@@ -2743,6 +2817,19 @@ var FloorMapPanel = class extends FloorMapBaseElement {
         } : room
       );
       this._dirty = true;
+      return;
+    }
+    if (activeState.mode === "room-label") {
+      const deltaX = point.x - activeState.startPoint.x;
+      const deltaY = point.y - activeState.startPoint.y;
+      this._draftRooms = this._draftRooms.map(
+        (room) => room.id === activeState.roomId ? {
+          ...room,
+          label_x: clampCoordinate(activeState.labelStart.x + deltaX),
+          label_y: clampCoordinate(activeState.labelStart.y + deltaY)
+        } : room
+      );
+      this._dirty = true;
     }
   }
   _onEditorPointerUp(event) {
@@ -2756,7 +2843,7 @@ var FloorMapPanel = class extends FloorMapBaseElement {
   }
   _onEditorMapClick(event) {
     const target = event.target;
-    if (target.closest(".marker-chip") || target.closest(".room-point-handle")) {
+    if (target.closest(".marker-chip") || target.closest(".room-point-handle") || target.closest(".room-label.is-editable")) {
       return;
     }
     const point = this._normalizedPointFromClient(event.clientX, event.clientY);

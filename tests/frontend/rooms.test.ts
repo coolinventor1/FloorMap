@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   createRoomLightingBackground,
+  defaultRoomLabelPosition,
   roomBounds,
   roomContainsPlacement,
   roomPolygonPoints,
@@ -18,6 +19,8 @@ describe("room helpers", () => {
       { x: 0.5, y: 0.5 },
       { x: 0.1, y: 0.5 },
     ],
+    label_x: 0.12,
+    label_y: 0.12,
   };
 
   it("detects placements inside the room", () => {
@@ -61,5 +64,12 @@ describe("room helpers", () => {
 
     expect(background).toContain("radial-gradient");
     expect(background).toContain("linear-gradient");
+  });
+
+  it("defaults the room label near the room's upper-left bounds", () => {
+    expect(defaultRoomLabelPosition({ points: room.points })).toEqual({
+      x: 0.11,
+      y: 0.11,
+    });
   });
 });

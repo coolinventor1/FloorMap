@@ -7,9 +7,11 @@ import { clampCoordinate, MAX_SCALE, MIN_SCALE, zoomAroundPoint } from "./lib/fl
 import {
   clampRoomPoint,
   createRoomLightingBackground,
+  defaultRoomLabelPosition,
   MIN_ROOM_POINTS,
   roomClipPath,
   roomContainsPlacement,
+  roomLabelStyle,
   roomPolygonPoints,
   roomStyle,
 } from "./lib/rooms";
@@ -166,6 +168,7 @@ const baseStyles = css`
   }
 
   .rooms,
+  .room-labels,
   .room-points-layer,
   .markers {
     position: absolute;
@@ -173,6 +176,7 @@ const baseStyles = css`
   }
 
   .rooms,
+  .room-labels,
   .room-points-layer {
     pointer-events: none;
   }
@@ -209,10 +213,8 @@ const baseStyles = css`
 
   .room-label {
     position: absolute;
-    left: 0.55rem;
-    top: 0.55rem;
     z-index: 1;
-    max-width: calc(100% - 1.1rem);
+    max-width: 14rem;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -224,6 +226,17 @@ const baseStyles = css`
     font-weight: 600;
     box-shadow: 0 1px 6px rgba(15, 23, 42, 0.12);
     pointer-events: none;
+    transform: translate(0, 0);
+  }
+
+  .room-label.is-editable {
+    pointer-events: auto;
+    cursor: grab;
+    touch-action: none;
+  }
+
+  .room-label.is-editable:active {
+    cursor: grabbing;
   }
 
   .room.is-lit .room-outline {
@@ -1053,6 +1066,9 @@ class FloorMapCard extends FloorMapBaseElement {
                 <div class="rooms">
                   ${this._layout.rooms.map((room) => this._renderCardRoom(room))}
                 </div>
+                <div class="room-labels">
+                  ${this._layout.rooms.map((room) => this._renderCardRoomLabel(room))}
+                </div>
                 <div class="markers">
                   ${this._layout.placements.map((placement) => this._renderCardMarker(placement))}
                 </div>
@@ -1077,9 +1093,12 @@ class FloorMapCard extends FloorMapBaseElement {
           class="room-lighting"
           style=${`${background ? `background:${background};` : ""} clip-path:${roomClipPath(room)};`}
         ></div>
-        <div class="room-label">${room.name}</div>
       </div>
     `;
+  }
+
+  private _renderCardRoomLabel(room: FloorMapRoom): TemplateResult {
+    return html`<div class="room-label" style=${roomLabelStyle(room)}>${room.name}</div>`;
   }
 
   private _renderCardMarker(placement: FloorMapPlacement): TemplateResult {
@@ -1641,6 +1660,13 @@ class FloorMapPanel extends FloorMapBaseElement {
         roomId: string;
         pointIndex: number;
       }
+    | {
+        mode: "room-label";
+        pointerId: number;
+        roomId: string;
+        startPoint: { x: number; y: number };
+        labelStart: { x: number; y: number };
+      }
     | undefined;
 
   protected override async _afterInitialize(): Promise<void> {
@@ -1820,6 +1846,9 @@ class FloorMapPanel extends FloorMapBaseElement {
                   ${this._draftRooms.map((room) => this._renderEditorRoom(room))}
                   ${this._pendingRoomPoints.length >= MIN_ROOM_POINTS ? this._renderDraftRoom() : nothing}
                 </div>
+                <div class="room-labels">
+                  ${this._draftRooms.map((room) => this._renderEditorRoomLabel(room))}
+                </div>
                 <div class="room-points-layer">
                   ${this._draftRooms.map((room) => this._renderRoomPointHandles(room))}
                   ${this._pendingRoomPoints.map(
@@ -1966,7 +1995,19 @@ class FloorMapPanel extends FloorMapBaseElement {
         <svg class="room-outline-svg" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
           <polygon class=${preview ? "room-draft-shape" : "room-outline"} points=${roomPolygonPoints(room)}></polygon>
         </svg>
-        <div class="room-label">${room.name}</div>
+      </div>
+    `;
+  }
+
+  private _renderEditorRoomLabel(room: FloorMapRoom): TemplateResult {
+    return html`
+      <div
+        class="room-label is-editable"
+        data-room-id=${room.id}
+        style=${roomLabelStyle(room)}
+        title=${`Move ${room.name} label`}
+      >
+        ${room.name}
       </div>
     `;
   }
@@ -1984,10 +2025,13 @@ class FloorMapPanel extends FloorMapBaseElement {
   }
 
   private _renderDraftRoom(): TemplateResult {
+    const defaultLabel = defaultRoomLabelPosition({ points: this._pendingRoomPoints });
     const draftRoom: FloorMapRoom = {
       id: "draft-room",
       name: this._pendingRoomName ?? DEFAULT_ROOM_NAME,
       points: this._pendingRoomPoints,
+      label_x: defaultLabel.x,
+      label_y: defaultLabel.y,
     };
     return this._renderEditorRoom(draftRoom, true);
   }
@@ -2131,12 +2175,19 @@ class FloorMapPanel extends FloorMapBaseElement {
       return;
     }
 
+    const draftRoomBase = {
+      id: generateRoomId(),
+      name: this._pendingRoomName,
+      points: this._pendingRoomPoints,
+    };
+    const defaultLabel = defaultRoomLabelPosition(draftRoomBase);
+
     this._draftRooms = [
       ...this._draftRooms,
       {
-        id: generateRoomId(),
-        name: this._pendingRoomName,
-        points: this._pendingRoomPoints,
+        ...draftRoomBase,
+        label_x: defaultLabel.x,
+        label_y: defaultLabel.y,
       },
     ];
     this._dirty = true;
@@ -2197,12 +2248,35 @@ class FloorMapPanel extends FloorMapBaseElement {
     const target = event.target as HTMLElement;
     const marker = target.closest<HTMLElement>(".marker-chip");
     const roomPointHandle = target.closest<HTMLElement>(".room-point-handle");
+    const roomLabel = target.closest<HTMLElement>(".room-label.is-editable");
     const surface = this._mapSurface();
     if (!surface) {
       return;
     }
 
     if (this._pendingRoomName) {
+      return;
+    }
+
+    if (!this._pendingEntityId && roomLabel) {
+      const roomId = roomLabel.dataset.roomId;
+      const room = this._draftRooms.find((entry) => entry.id === roomId);
+      const point = this._normalizedPointFromClient(event.clientX, event.clientY);
+      if (!roomId || !room || !point) {
+        return;
+      }
+      this._panState = {
+        mode: "room-label",
+        pointerId: event.pointerId,
+        roomId,
+        startPoint: point,
+        labelStart: {
+          x: room.label_x,
+          y: room.label_y,
+        },
+      };
+      event.preventDefault();
+      surface.setPointerCapture(event.pointerId);
       return;
     }
 
@@ -2289,6 +2363,22 @@ class FloorMapPanel extends FloorMapBaseElement {
           : room
       );
       this._dirty = true;
+      return;
+    }
+
+    if (activeState.mode === "room-label") {
+      const deltaX = point.x - activeState.startPoint.x;
+      const deltaY = point.y - activeState.startPoint.y;
+      this._draftRooms = this._draftRooms.map((room) =>
+        room.id === activeState.roomId
+          ? {
+              ...room,
+              label_x: clampCoordinate(activeState.labelStart.x + deltaX),
+              label_y: clampCoordinate(activeState.labelStart.y + deltaY),
+            }
+          : room
+      );
+      this._dirty = true;
     }
   }
 
@@ -2305,7 +2395,11 @@ class FloorMapPanel extends FloorMapBaseElement {
 
   private _onEditorMapClick(event: MouseEvent): void {
     const target = event.target as HTMLElement;
-    if (target.closest(".marker-chip") || target.closest(".room-point-handle")) {
+    if (
+      target.closest(".marker-chip") ||
+      target.closest(".room-point-handle") ||
+      target.closest(".room-label.is-editable")
+    ) {
       return;
     }
 

@@ -39,6 +39,8 @@ class RoomDict(TypedDict):
     id: str
     name: str
     points: list[RoomPointDict]
+    label_x: float
+    label_y: float
 
 
 class LayoutDict(TypedDict):
@@ -143,11 +145,18 @@ def normalize_rooms(raw_rooms: list[dict]) -> list[RoomDict]:
         else:
             raise ValueError("Room points are required")
 
+        min_x = min(point["x"] for point in points)
+        min_y = min(point["y"] for point in points)
+        label_x = clamp_coordinate(float(raw.get("label_x", min_x)))
+        label_y = clamp_coordinate(float(raw.get("label_y", min_y)))
+
         normalized.append(
             RoomDict(
                 id=room_id,
                 name=name,
                 points=points,
+                label_x=label_x,
+                label_y=label_y,
             )
         )
 
