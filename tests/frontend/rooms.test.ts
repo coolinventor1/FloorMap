@@ -66,6 +66,22 @@ describe("room helpers", () => {
     expect(background).toContain("linear-gradient");
   });
 
+  it("uses a light's live color for the room glow when provided", () => {
+    const background = createRoomLightingBackground(room, [
+      {
+        entity_id: "light.accent",
+        x: 0.22,
+        y: 0.24,
+        show_state: false,
+        size: 1.1,
+        glowColor: { r: 64, g: 128, b: 255 },
+      },
+    ]);
+
+    expect(background).toContain("rgba(202, 219, 255, 0.88)");
+    expect(background).toContain("rgba(87, 143, 255, 0.18)");
+  });
+
   it("defaults the room label near the room's upper-left bounds", () => {
     expect(defaultRoomLabelPosition({ points: room.points })).toEqual({
       x: 0.11,

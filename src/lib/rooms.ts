@@ -1,6 +1,14 @@
-import type { FloorMapPlacement, FloorMapPoint, FloorMapRoom } from "./types";
+import type {
+  FloorMapLightingPlacement,
+  FloorMapPlacement,
+  FloorMapPoint,
+  FloorMapRoom,
+  RGBColor,
+} from "./types";
 
 export const MIN_ROOM_POINTS = 3;
+const DEFAULT_GLOW_COLOR: RGBColor = { r: 255, g: 214, b: 102 };
+const WHITE: RGBColor = { r: 255, g: 255, b: 255 };
 
 function clampCoordinate(value: number): number {
   return Math.max(0, Math.min(1, value));
@@ -105,26 +113,74 @@ export function normalizeRoomPoints(points: FloorMapPoint[]): FloorMapPoint[] {
   return points.map((point) => clampRoomPoint(point));
 }
 
+function mixColors(base: RGBColor, highlight: RGBColor, ratio: number): RGBColor {
+  const clampedRatio = Math.max(0, Math.min(1, ratio));
+  return {
+    r: Math.round(base.r + (highlight.r - base.r) * clampedRatio),
+    g: Math.round(base.g + (highlight.g - base.g) * clampedRatio),
+    b: Math.round(base.b + (highlight.b - base.b) * clampedRatio),
+  };
+}
+
+function rgba(color: RGBColor, alpha: number): string {
+  return `rgba(${color.r}, ${color.g}, ${color.b}, ${alpha})`;
+}
+
+function placementGlowColor(placement: FloorMapLightingPlacement): RGBColor {
+  return placement.glowColor ?? DEFAULT_GLOW_COLOR;
+}
+
+function averageGlowColor(placements: FloorMapLightingPlacement[]): RGBColor {
+  if (!placements.length) {
+    return DEFAULT_GLOW_COLOR;
+  }
+
+  const totals = placements.reduce(
+    (current, placement) => {
+      const color = placementGlowColor(placement);
+      return {
+        r: current.r + color.r,
+        g: current.g + color.g,
+        b: current.b + color.b,
+      };
+    },
+    { r: 0, g: 0, b: 0 }
+  );
+
+  return {
+    r: Math.round(totals.r / placements.length),
+    g: Math.round(totals.g / placements.length),
+    b: Math.round(totals.b / placements.length),
+  };
+}
+
 export function createRoomLightingBackground(
   room: FloorMapRoom,
-  placements: FloorMapPlacement[]
+  placements: FloorMapLightingPlacement[]
 ): string | undefined {
   const bounds = roomBounds(room);
   const gradients = placements
     .filter((placement) => roomContainsPlacement(room, placement))
     .map((placement) => {
+      const glowColor = placementGlowColor(placement);
+      const innerColor = mixColors(glowColor, WHITE, 0.72);
+      const middleColor = mixColors(glowColor, WHITE, 0.34);
+      const outerColor = mixColors(glowColor, WHITE, 0.12);
       const localX = ((placement.x - bounds.x) / bounds.width) * 100;
       const localY = ((placement.y - bounds.y) / bounds.height) * 100;
       const inner = Math.min(16, 7 + placement.size * 4);
       const middle = Math.min(32, 15 + placement.size * 7);
       const outer = Math.min(54, 26 + placement.size * 9);
-      return `radial-gradient(circle at ${localX.toFixed(2)}% ${localY.toFixed(2)}%, rgba(255, 250, 232, 0.88) 0%, rgba(255, 234, 168, 0.46) ${inner.toFixed(2)}%, rgba(255, 216, 112, 0.18) ${middle.toFixed(2)}%, rgba(255, 206, 92, 0.03) ${outer.toFixed(2)}%, rgba(255, 206, 92, 0) 100%)`;
+      return `radial-gradient(circle at ${localX.toFixed(2)}% ${localY.toFixed(2)}%, ${rgba(innerColor, 0.88)} 0%, ${rgba(middleColor, 0.46)} ${inner.toFixed(2)}%, ${rgba(outerColor, 0.18)} ${middle.toFixed(2)}%, ${rgba(outerColor, 0.03)} ${outer.toFixed(2)}%, ${rgba(outerColor, 0)} 100%)`;
     });
 
   if (!gradients.length) {
     return undefined;
   }
 
-  gradients.push("linear-gradient(180deg, rgba(255, 244, 210, 0.05), rgba(255, 244, 210, 0.08))");
+  const ambientColor = mixColors(averageGlowColor(placements), WHITE, 0.4);
+  gradients.push(
+    `linear-gradient(180deg, ${rgba(ambientColor, 0.05)}, ${rgba(ambientColor, 0.08)})`
+  );
   return gradients.join(", ");
 }

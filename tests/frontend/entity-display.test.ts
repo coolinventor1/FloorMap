@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { entityIcon } from "../../src/lib/entity-display";
+import { entityIcon, entityLampGlowColor } from "../../src/lib/entity-display";
 import type { HassEntity } from "../../src/lib/types";
 
 function createState(
@@ -42,5 +42,26 @@ describe("entity display helpers", () => {
     });
 
     expect(entityIcon(light.entity_id, light, undefined)).toBe("mdi:lightbulb");
+  });
+
+  it("uses the live RGB color for colored lights", () => {
+    const light = createState("light.accent", "on", {
+      color_mode: "rgb",
+      rgb_color: [64, 128, 255],
+    });
+
+    expect(entityLampGlowColor(light.entity_id, light)).toEqual({
+      r: 64,
+      g: 128,
+      b: 255,
+    });
+  });
+
+  it("keeps white-mode lights on the warm default glow", () => {
+    const light = createState("light.reading_lamp", "on", {
+      color_mode: "color_temp",
+    });
+
+    expect(entityLampGlowColor(light.entity_id, light)).toBeUndefined();
   });
 });

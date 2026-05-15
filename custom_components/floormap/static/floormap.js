@@ -573,8 +573,22 @@ var DOOR_DEVICE_CLASSES = /* @__PURE__ */ new Set(["door", "opening"]);
 var GARAGE_DEVICE_CLASSES = /* @__PURE__ */ new Set(["garage", "garage_door"]);
 var OPEN_STATES = /* @__PURE__ */ new Set(["on", "open", "opening"]);
 var CLOSED_STATES = /* @__PURE__ */ new Set(["off", "closed", "closing"]);
+var COLOR_LIGHT_MODES = /* @__PURE__ */ new Set(["hs", "xy", "rgb", "rgbw", "rgbww"]);
 function asString(value) {
   return typeof value === "string" && value.trim() ? value : void 0;
+}
+function asFiniteNumber(value) {
+  return typeof value === "number" && Number.isFinite(value) ? value : void 0;
+}
+function clampByte(value) {
+  return Math.round(Math.max(0, Math.min(255, value)));
+}
+function asColorTuple(value, length) {
+  if (!Array.isArray(value) || value.length < length) {
+    return void 0;
+  }
+  const numbers = value.slice(0, length).map((entry) => asFiniteNumber(entry)).filter((entry) => entry !== void 0);
+  return numbers.length === length ? numbers : void 0;
 }
 function normalizedState(stateObj) {
   return asString(stateObj?.state)?.toLowerCase();
@@ -594,6 +608,77 @@ function matchesToken(value, token) {
 }
 function entityBaseIcon(stateObj, fallback) {
   return asString(stateObj?.attributes.icon) ?? fallback?.icon ?? "mdi:map-marker";
+}
+function hsColorToRgb(hue, saturation) {
+  const normalizedHue = (hue % 360 + 360) % 360;
+  const normalizedSaturation = Math.max(0, Math.min(1, saturation / 100));
+  const chroma = normalizedSaturation;
+  const segment = normalizedHue / 60;
+  const second = chroma * (1 - Math.abs(segment % 2 - 1));
+  let red = 0;
+  let green = 0;
+  let blue = 0;
+  if (segment < 1) {
+    red = chroma;
+    green = second;
+  } else if (segment < 2) {
+    red = second;
+    green = chroma;
+  } else if (segment < 3) {
+    green = chroma;
+    blue = second;
+  } else if (segment < 4) {
+    green = second;
+    blue = chroma;
+  } else if (segment < 5) {
+    red = second;
+    blue = chroma;
+  } else {
+    red = chroma;
+    blue = second;
+  }
+  const match = 1 - chroma;
+  return {
+    r: clampByte((red + match) * 255),
+    g: clampByte((green + match) * 255),
+    b: clampByte((blue + match) * 255)
+  };
+}
+function xyColorToRgb(x2, y3) {
+  const safeX = Math.max(0, Math.min(1, x2));
+  const safeY = Math.max(1e-4, Math.min(1, y3));
+  const z2 = Math.max(0, 1 - safeX - safeY);
+  const luminance = 1;
+  const tristimulusX = luminance / safeY * safeX;
+  const tristimulusZ = luminance / safeY * z2;
+  let red = tristimulusX * 1.656492 - luminance * 0.354851 - tristimulusZ * 0.255038;
+  let green = -tristimulusX * 0.707196 + luminance * 1.655397 + tristimulusZ * 0.036152;
+  let blue = tristimulusX * 0.051713 - luminance * 0.121364 + tristimulusZ * 1.01153;
+  red = Math.max(0, red);
+  green = Math.max(0, green);
+  blue = Math.max(0, blue);
+  const maxComponent = Math.max(red, green, blue, 1e-4);
+  red /= maxComponent;
+  green /= maxComponent;
+  blue /= maxComponent;
+  const gammaCorrect = (value) => value <= 31308e-7 ? value * 12.92 : 1.055 * Math.pow(value, 1 / 2.4) - 0.055;
+  return {
+    r: clampByte(gammaCorrect(red) * 255),
+    g: clampByte(gammaCorrect(green) * 255),
+    b: clampByte(gammaCorrect(blue) * 255)
+  };
+}
+function currentLightColorMode(stateObj) {
+  return asString(stateObj?.attributes.color_mode)?.toLowerCase();
+}
+function lightIsSetToColor(stateObj) {
+  const colorMode = currentLightColorMode(stateObj);
+  if (colorMode) {
+    return COLOR_LIGHT_MODES.has(colorMode);
+  }
+  return Boolean(
+    asColorTuple(stateObj?.attributes.rgb_color, 3) || asColorTuple(stateObj?.attributes.rgbw_color, 4) || asColorTuple(stateObj?.attributes.rgbww_color, 5) || asColorTuple(stateObj?.attributes.hs_color, 2) || asColorTuple(stateObj?.attributes.xy_color, 2)
+  );
 }
 function entityDoorKind(entityId, stateObj, fallback) {
   const deviceClass = entityDeviceClass(stateObj);
@@ -666,6 +751,36 @@ function entityUsesLampPalette(entityId, stateObj, fallback) {
   const icon = entityBaseIcon(stateObj, fallback).toLowerCase();
   return icon.includes("lamp") || icon.includes("lightbulb");
 }
+function entityLampGlowColor(entityId, stateObj) {
+  if (entityDomain(entityId) !== "light" || !lightIsSetToColor(stateObj)) {
+    return void 0;
+  }
+  const rgbColor = asColorTuple(stateObj?.attributes.rgb_color, 3);
+  if (rgbColor) {
+    return { r: clampByte(rgbColor[0]), g: clampByte(rgbColor[1]), b: clampByte(rgbColor[2]) };
+  }
+  const rgbwColor = asColorTuple(stateObj?.attributes.rgbw_color, 4);
+  if (rgbwColor) {
+    return { r: clampByte(rgbwColor[0]), g: clampByte(rgbwColor[1]), b: clampByte(rgbwColor[2]) };
+  }
+  const rgbwwColor = asColorTuple(stateObj?.attributes.rgbww_color, 5);
+  if (rgbwwColor) {
+    return {
+      r: clampByte(rgbwwColor[0]),
+      g: clampByte(rgbwwColor[1]),
+      b: clampByte(rgbwwColor[2])
+    };
+  }
+  const hsColor = asColorTuple(stateObj?.attributes.hs_color, 2);
+  if (hsColor) {
+    return hsColorToRgb(hsColor[0], hsColor[1]);
+  }
+  const xyColor = asColorTuple(stateObj?.attributes.xy_color, 2);
+  if (xyColor) {
+    return xyColorToRgb(xyColor[0], xyColor[1]);
+  }
+  return void 0;
+}
 
 // src/lib/floormap-math.ts
 var MIN_SCALE = 1;
@@ -688,6 +803,8 @@ function zoomAroundPoint(transform, anchorX, anchorY, nextScale) {
 
 // src/lib/rooms.ts
 var MIN_ROOM_POINTS = 3;
+var DEFAULT_GLOW_COLOR = { r: 255, g: 214, b: 102 };
+var WHITE = { r: 255, g: 255, b: 255 };
 function clampCoordinate2(value) {
   return Math.max(0, Math.min(1, value));
 }
@@ -756,20 +873,62 @@ function roomContainsPoint(room, x2, y3) {
 function roomContainsPlacement(room, placement) {
   return roomContainsPoint(room, placement.x, placement.y);
 }
+function mixColors(base, highlight, ratio) {
+  const clampedRatio = Math.max(0, Math.min(1, ratio));
+  return {
+    r: Math.round(base.r + (highlight.r - base.r) * clampedRatio),
+    g: Math.round(base.g + (highlight.g - base.g) * clampedRatio),
+    b: Math.round(base.b + (highlight.b - base.b) * clampedRatio)
+  };
+}
+function rgba(color, alpha) {
+  return `rgba(${color.r}, ${color.g}, ${color.b}, ${alpha})`;
+}
+function placementGlowColor(placement) {
+  return placement.glowColor ?? DEFAULT_GLOW_COLOR;
+}
+function averageGlowColor(placements) {
+  if (!placements.length) {
+    return DEFAULT_GLOW_COLOR;
+  }
+  const totals = placements.reduce(
+    (current, placement) => {
+      const color = placementGlowColor(placement);
+      return {
+        r: current.r + color.r,
+        g: current.g + color.g,
+        b: current.b + color.b
+      };
+    },
+    { r: 0, g: 0, b: 0 }
+  );
+  return {
+    r: Math.round(totals.r / placements.length),
+    g: Math.round(totals.g / placements.length),
+    b: Math.round(totals.b / placements.length)
+  };
+}
 function createRoomLightingBackground(room, placements) {
   const bounds = roomBounds(room);
   const gradients = placements.filter((placement) => roomContainsPlacement(room, placement)).map((placement) => {
+    const glowColor = placementGlowColor(placement);
+    const innerColor = mixColors(glowColor, WHITE, 0.72);
+    const middleColor = mixColors(glowColor, WHITE, 0.34);
+    const outerColor = mixColors(glowColor, WHITE, 0.12);
     const localX = (placement.x - bounds.x) / bounds.width * 100;
     const localY = (placement.y - bounds.y) / bounds.height * 100;
     const inner = Math.min(16, 7 + placement.size * 4);
     const middle = Math.min(32, 15 + placement.size * 7);
     const outer = Math.min(54, 26 + placement.size * 9);
-    return `radial-gradient(circle at ${localX.toFixed(2)}% ${localY.toFixed(2)}%, rgba(255, 250, 232, 0.88) 0%, rgba(255, 234, 168, 0.46) ${inner.toFixed(2)}%, rgba(255, 216, 112, 0.18) ${middle.toFixed(2)}%, rgba(255, 206, 92, 0.03) ${outer.toFixed(2)}%, rgba(255, 206, 92, 0) 100%)`;
+    return `radial-gradient(circle at ${localX.toFixed(2)}% ${localY.toFixed(2)}%, ${rgba(innerColor, 0.88)} 0%, ${rgba(middleColor, 0.46)} ${inner.toFixed(2)}%, ${rgba(outerColor, 0.18)} ${middle.toFixed(2)}%, ${rgba(outerColor, 0.03)} ${outer.toFixed(2)}%, ${rgba(outerColor, 0)} 100%)`;
   });
   if (!gradients.length) {
     return void 0;
   }
-  gradients.push("linear-gradient(180deg, rgba(255, 244, 210, 0.05), rgba(255, 244, 210, 0.08))");
+  const ambientColor = mixColors(averageGlowColor(placements), WHITE, 0.4);
+  gradients.push(
+    `linear-gradient(180deg, ${rgba(ambientColor, 0.05)}, ${rgba(ambientColor, 0.08)})`
+  );
   return gradients.join(", ");
 }
 
@@ -1197,12 +1356,20 @@ function roomPointHandleStyle(point) {
   return `left:${point.x * 100}%; top:${point.y * 100}%;`;
 }
 function activeLightPlacementsForRoom(room, placements, resolveState, resolveIndexEntry) {
-  return placements.filter((placement) => {
+  return placements.flatMap((placement) => {
     if (!roomContainsPlacement(room, placement)) {
-      return false;
+      return [];
     }
     const stateObj = resolveState(placement.entity_id);
-    return entityIsActive(stateObj) && entityUsesLampPalette(placement.entity_id, stateObj, resolveIndexEntry?.(placement.entity_id));
+    if (!entityIsActive(stateObj) || !entityUsesLampPalette(placement.entity_id, stateObj, resolveIndexEntry?.(placement.entity_id))) {
+      return [];
+    }
+    return [
+      {
+        ...placement,
+        glowColor: entityLampGlowColor(placement.entity_id, stateObj)
+      }
+    ];
   });
 }
 function appendCacheBuster(path, layout) {

@@ -2,7 +2,12 @@ import { LitElement, css, html, nothing } from "lit";
 import type { PropertyValues, TemplateResult } from "lit";
 
 import { resolveEntityAction } from "./lib/entity-actions";
-import { entityIcon, entityLabel, entityUsesLampPalette } from "./lib/entity-display";
+import {
+  entityIcon,
+  entityLabel,
+  entityLampGlowColor,
+  entityUsesLampPalette,
+} from "./lib/entity-display";
 import { clampCoordinate, MAX_SCALE, MIN_SCALE, zoomAroundPoint } from "./lib/floormap-math";
 import {
   clampRoomPoint,
@@ -19,6 +24,7 @@ import type {
   EntityIndexEntry,
   FloorMapCardConfig,
   FloorMapLayout,
+  FloorMapLightingPlacement,
   FloorMapPlacement,
   FloorMapPoint,
   FloorMapRoom,
@@ -499,16 +505,25 @@ function activeLightPlacementsForRoom(
   placements: FloorMapPlacement[],
   resolveState: (entityId: string) => HassEntity | undefined,
   resolveIndexEntry?: (entityId: string) => EntityIndexEntry | undefined
-): FloorMapPlacement[] {
-  return placements.filter((placement) => {
+): FloorMapLightingPlacement[] {
+  return placements.flatMap((placement) => {
     if (!roomContainsPlacement(room, placement)) {
-      return false;
+      return [];
     }
     const stateObj = resolveState(placement.entity_id);
-    return (
-      entityIsActive(stateObj) &&
-      entityUsesLampPalette(placement.entity_id, stateObj, resolveIndexEntry?.(placement.entity_id))
-    );
+    if (
+      !entityIsActive(stateObj) ||
+      !entityUsesLampPalette(placement.entity_id, stateObj, resolveIndexEntry?.(placement.entity_id))
+    ) {
+      return [];
+    }
+
+    return [
+      {
+        ...placement,
+        glowColor: entityLampGlowColor(placement.entity_id, stateObj),
+      },
+    ];
   });
 }
 

@@ -14,6 +14,16 @@ export interface FloorMapPlacement {
   size: number;
 }
 
+export interface RGBColor {
+  r: number;
+  g: number;
+  b: number;
+}
+
+export interface FloorMapLightingPlacement extends FloorMapPlacement {
+  glowColor?: RGBColor;
+}
+
 export interface FloorMapPoint {
   x: number;
   y: number;
@@ -44,13 +54,21 @@ export interface HassEntity {
   entity_id: string;
   state: string;
   attributes: Record<string, unknown> & {
+    brightness?: number;
+    color_mode?: string;
     device_class?: string;
     friendly_name?: string;
+    hs_color?: [number, number];
     icon?: string;
     percentage?: number;
     percentage_step?: number;
+    rgb_color?: [number, number, number];
+    rgbw_color?: [number, number, number, number];
+    rgbww_color?: [number, number, number, number, number];
     speed_count?: number;
+    supported_color_modes?: string[];
     unit_of_measurement?: string;
+    xy_color?: [number, number];
   };
 }
 
